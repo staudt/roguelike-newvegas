@@ -1,16 +1,20 @@
 import type { Place, Space } from '../engine/GameState';
 import { createMonster } from '../entities/Monster';
-import { createNpc, type InteractionId, type Npc } from '../entities/Npc';
+import { createNpc, type InteractionId } from '../entities/Npc';
 import type { Point, Rect } from '../utils/geometry';
-import type { MapGrid } from './GameMap';
+import { VisibleSet } from '../fov/VisibleSet';
+import { ChunkedMap } from './ChunkedMap';
+import { decodeChunk, type ChunkJSON } from './ChunkCodec';
+import { FlatMap } from './FlatMap';
+import { tileIdOf, tileIndex } from './Tile';
 
 /**
- * On-disk shape of one space. Goodsprings is hand-authored rather than procedurally generated,
- * so unlike rogueout's ASCII-plan-plus-generator format, a space here is plain JSON: a flat tile
- * grid, a parallel height grid, and its NPCs/transitions. The map editor reads and writes exactly
- * this shape (see src/editor/MapDocument.ts).
+ * On-disk shape of one FLAT space: a small fixed rectangle (a building's extra floor) with a flat
+ * tile grid and a parallel height grid. `worldOrigin` is where its top-left cell sits in world
+ * coordinates. The big outdoor world is not one of these: it is chunked (see WorldMetaJSON).
  */
 export interface SpaceJSON {
+  kind?: 'flat';
   id: string;
   name: string;
   indoor: boolean;
@@ -44,6 +48,50 @@ export interface SpaceJSON {
   floor?: number;
 }
 
+type EntityJSON = Pick<SpaceJSON, 'npcs' | 'monsters' | 'transitions' | 'places'>;
+
+function buildEntities(data: EntityJSON) {
+  return {
+    npcs: data.npcs.map((n) => createNpc(n.id, n.name, n.x, n.y, n.dialogue, n.fg, n.interactions)),
+    monsters: (data.monsters ?? []).map((m, i) => createMonster(`${m.defId}-${i + 1}`, m.defId, m.x, m.y)),
+    transitions: data.transitions.map((t) => ({ ...t })),
+    places: (data.places ?? []).map((pl): Place => ({ name: pl.name, rect: { ...pl.rect } })),
+  };
+}
+
+/**
+ * On-disk shape of the chunked world's metadata (world.json next to a chunks/ folder of
+ * `<cx>_<cy>.json` files): everything about the world except its cells.
+ */
+export interface WorldMetaJSON {
+  kind: 'chunked';
+  id: string;
+  name: string;
+  playerStart?: Point;
+  npcs: SpaceJSON['npcs'];
+  monsters?: SpaceJSON['monsters'];
+  transitions: SpaceJSON['transitions'];
+  places?: SpaceJSON['places'];
+}
+
+export function isWorldMeta(data: unknown): data is WorldMetaJSON {
+  return typeof data === 'object' && data !== null && (data as { kind?: unknown }).kind === 'chunked';
+}
+
+/** Builds the outdoor world: an (initially) empty ChunkedMap filled from the given chunk files. */
+export function loadWorld(meta: WorldMetaJSON, chunkJsons: ChunkJSON[]): Space {
+  const grid = new ChunkedMap();
+  for (const json of chunkJsons) grid.addChunk(decodeChunk(json));
+  return {
+    id: meta.id,
+    name: meta.name,
+    indoor: false,
+    grid,
+    ...buildEntities(meta),
+    visible: VisibleSet.empty(),
+  };
+}
+
 export function loadSpace(data: SpaceJSON): Space {
   const expected = data.width * data.height;
   if (data.tiles.length !== expected) {
@@ -57,42 +105,37 @@ export function loadSpace(data: SpaceJSON): Space {
     );
   }
 
-  const grid: MapGrid = {
-    width: data.width,
-    height: data.height,
-    tiles: [...data.tiles],
-    heights: Uint8Array.from(data.heights),
-  };
-
-  const npcs: Npc[] = data.npcs.map((n) => createNpc(n.id, n.name, n.x, n.y, n.dialogue, n.fg, n.interactions));
-  const monsters = (data.monsters ?? []).map((m, i) => createMonster(`${m.defId}-${i + 1}`, m.defId, m.x, m.y));
+  const grid = new FlatMap(
+    data.width,
+    data.height,
+    data.worldOrigin ?? { x: 0, y: 0 },
+    Uint8Array.from(data.tiles, (t) => tileIndex(t)),
+    Uint8Array.from(data.heights),
+  );
 
   return {
     id: data.id,
     name: data.name,
     indoor: data.indoor,
-    worldOrigin: { ...data.worldOrigin },
     grid,
-    npcs,
-    monsters,
-    transitions: data.transitions.map((t) => ({ ...t })),
-    places: (data.places ?? []).map((pl): Place => ({ name: pl.name, rect: { ...pl.rect } })),
-    visible: new Uint8Array(expected),
-    explored: new Uint8Array(expected),
+    ...buildEntities(data),
+    visible: VisibleSet.empty(),
   };
 }
 
-/** The inverse of loadSpace — used by the map editor to write a Space back out as JSON. */
+/** The inverse of loadSpace, for flat spaces. */
 export function serializeSpace(space: Space): SpaceJSON {
+  const grid = space.grid;
+  if (!(grid instanceof FlatMap)) throw new Error(`Space "${space.id}" is not flat and can't be saved as a SpaceJSON`);
   return {
     id: space.id,
     name: space.name,
     indoor: space.indoor,
-    worldOrigin: { ...space.worldOrigin },
-    width: space.grid.width,
-    height: space.grid.height,
-    tiles: [...space.grid.tiles],
-    heights: Array.from(space.grid.heights),
+    worldOrigin: { ...grid.origin },
+    width: grid.width,
+    height: grid.height,
+    tiles: Array.from(grid.tiles, (t) => tileIdOf(t)),
+    heights: Array.from(grid.heights),
     npcs: space.npcs.map((n) => ({
       id: n.id,
       name: n.name,

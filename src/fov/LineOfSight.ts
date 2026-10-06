@@ -1,8 +1,9 @@
 import { linePoints, type Point } from '../utils/geometry';
-import { getHeight, getTileId, isOpaque, type MapGrid } from '../world/GameMap';
+import type { MapGrid } from '../world/GameMap';
+import { GROUND_TILE, tileOpaque } from '../world/Tile';
 
 function groundHeightAt(map: MapGrid, p: Point): number {
-  return getTileId(map, p.x, p.y) === 'ground' ? getHeight(map, p.x, p.y) : 0;
+  return map.getTile(p.x, p.y) === GROUND_TILE ? map.getHeight(p.x, p.y) : 0;
 }
 
 /**
@@ -29,7 +30,7 @@ export function hasLineOfSight(map: MapGrid, from: Point, to: Point): boolean {
     const p = points[i]!;
     const isEndpoint = i === points.length - 1;
 
-    if (isOpaque(map, p.x, p.y)) return isEndpoint;
+    if (tileOpaque(map.getTile(p.x, p.y))) return isEndpoint;
     if (isEndpoint) continue;
 
     const sightlineHeight = fromHeight + (toHeight - fromHeight) * (i / steps);

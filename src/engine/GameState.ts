@@ -3,7 +3,8 @@ import type { Monster } from '../entities/Monster';
 import type { Npc } from '../entities/Npc';
 import type { Player } from '../entities/Player';
 import { rectContains, type Point, type Rect } from '../utils/geometry';
-import type { MapGrid } from '../world/GameMap';
+import type { VisibleSet } from '../fov/VisibleSet';
+import type { TileMap } from '../world/TileMap';
 
 /**
  * A doorway (or any deliberate crossing) between two spaces. `x`/`y` are WORLD coordinates and
@@ -18,14 +19,6 @@ export interface Transition {
 }
 
 /**
- * One map the player can be standing in: the outdoor world, or a building interior. Interiors
- * are separate `MapGrid`s (own local coordinates) rather than cells carved out of the world map —
- * the world is expected to grow large, and keeping each building's data independent is what lets
- * it be authored, saved, and loaded on its own. `worldOrigin` is what stitches a local grid back
- * into world space: world (wx, wy) <-> local (wx - worldOrigin.x, wy - worldOrigin.y). The
- * outdoor world itself has `worldOrigin = {0, 0}`, so the common case costs nothing.
- */
-/**
  * A named rectangle of the map — "Prospector Saloon", "Doc Mitchell's House". Purely descriptive:
  * it carries no walls or rules (those are ordinary tiles), it just names where you are. Smaller
  * places nest inside larger ones and win when both contain you.
@@ -39,14 +32,14 @@ export interface Space {
   id: string;
   name: string;
   indoor: boolean;
-  worldOrigin: Point;
-  grid: MapGrid;
+  /** Every coordinate in the game is a world coordinate; the map decides which cells exist. */
+  grid: TileMap;
   npcs: Npc[];
   monsters: Monster[];
   transitions: Transition[];
   places: Place[];
-  visible: Uint8Array;
-  explored: Uint8Array;
+  /** Cells in view right now. What has been seen before lives in the map (isExplored). */
+  visible: VisibleSet;
 }
 
 /** The innermost named place containing a world point, if any. */
@@ -67,14 +60,6 @@ export function locationName(state: GameState): string {
 
 export function sightRadiusFor(space: Space): number {
   return space.indoor ? INDOOR_SIGHT_RADIUS : DAYLIGHT_SIGHT_RADIUS;
-}
-
-export function worldToLocal(space: Space, point: Point): Point {
-  return { x: point.x - space.worldOrigin.x, y: point.y - space.worldOrigin.y };
-}
-
-export function localToWorld(space: Space, point: Point): Point {
-  return { x: point.x + space.worldOrigin.x, y: point.y + space.worldOrigin.y };
 }
 
 /** A monologue bubble floating above an NPC on the canvas. Transient — never saved. */

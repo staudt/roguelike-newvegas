@@ -24,6 +24,17 @@ Box tool, live shape previews, game-matching cell proportions. The game auto-loa
 `src/world/goodsprings/`, which is how future extra floors will appear. Separate `Space` files + the
 `transitions` machinery remain only for floors reached by stairs.
 
+## Done — M2.6: scalable, growable world
+The world is a sparse set of 64x64 chunks in WORLD coordinates (negative allowed), behind a interface ( for the world,  for small spaces) — nothing outside  knows how
+cells are stored. One byte per tile, run-length-encoded chunk files (all of Goodsprings is 1.8 KB, was
+~90 KB). Missing chunks are void: the hard stop where the map ends (the old rock border is gone).
+The game streams chunks (ring around the player loaded, far clean ones dropped, dirty ones kept,
+explored memory preserved); visibility uses a small window instead of a whole-map array; only creatures
+within SIM_RADIUS (40) act, with an occupancy index. Editor: viewport rendering, pan/zoom/minimap, chunk
+outlines, Expand (+N/S/E/W, add/remove chunk), void swatch, delta-based undo, saves only dirty chunks.
+Measured before the refactor: map JSON hit 22 MB at 1024^2 and 88 MB at 2048^2; 20,000 creatures cost
+~230 ms/turn. Streaming was verified in the real game across several chunk seams.
+
 ## Planned (in order) — and how each fits the current code
 
 ### M3 — Items you carry, drop and loot; guns
@@ -72,6 +83,9 @@ monologues → save/load (spaces serialize independently, which multi-level need
 shops/trade → perks and skills → SPECIAL allocation screen.
 
 ### Smaller open items
+- **Scale follow-ups:** the editor loads every chunk file up front (lazy loading once there are hundreds);
+  long-distance travel/run commands and fast travel between discovered places; creatures stored per chunk
+  (spawn/despawn) instead of one list; hunters farther than ~20 cells in open ground exceed the path budget.
 - **Doors:** hostile humanoids (and gun-wielding NPCs) should open closed doors on their way to you;
   animals can't. Add `c` close and locked doors/keys. Lit vs dark rooms (a tile `indoor` flag) later.
 - **Balance:** a full-HP bare-handed player beats a lone gecko ~99.95% of the time. Consider lowering

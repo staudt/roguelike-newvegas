@@ -10,4 +10,4 @@ if (!canvas || !messageLogEl || !statusBarEl || !menuEl) {
 }
 
 const game = new Game(canvas, messageLogEl, statusBarEl, menuEl);
-game.start();
+void game.start();

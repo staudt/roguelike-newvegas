@@ -12,7 +12,7 @@ function corridor(
   defId: string,
   overrides: Partial<Pick<Monster, 'speed' | 'energy' | 'awareness' | 'x'>> = {},
 ): { arena: Arena; monster: Monster } {
-  const monster = createMonster('m', defId, overrides.x ?? 50, 0);
+  const monster = createMonster('m', defId, overrides.x ?? 35, 0);
   monster.awareness = overrides.awareness ?? 100;
   monster.energy = overrides.energy ?? 0;
   if (overrides.speed !== undefined) monster.speed = overrides.speed;
@@ -81,22 +81,22 @@ describe('runCreatureTurns — energy and speed', () => {
   });
 
   it('a fresh monster starts with an empty bank: a normal-speed one gets exactly one action on its first tick', () => {
-    const monster = createMonster('m', 'gecko', 50, 0);
+    const monster = createMonster('m', 'gecko', 35, 0);
     monster.awareness = 100;
     const arena = buildArena({ width: 60, height: 1, player: { x: 0, y: 0 }, monsters: [monster] });
     expect(monster.energy).toBe(0);
     runCreatureTurns(arena.state, () => 0.999, arena.events);
-    expect(monster.x).toBe(49);
+    expect(monster.x).toBe(34);
   });
 
   it('a fresh slow monster waits a tick before its first action', () => {
-    const monster = createMonster('m', 'radroach', 50, 0); // speed 8 < 12
+    const monster = createMonster('m', 'radroach', 35, 0); // speed 8 < 12
     monster.awareness = 100;
     const arena = buildArena({ width: 60, height: 1, player: { x: 0, y: 0 }, monsters: [monster] });
     runCreatureTurns(arena.state, () => 0.999, arena.events);
-    expect(monster.x).toBe(50);
+    expect(monster.x).toBe(35);
     runCreatureTurns(arena.state, () => 0.999, arena.events);
-    expect(monster.x).toBe(49);
+    expect(monster.x).toBe(34);
   });
 
   it('crippled legs slow a hunter: both legs crippled = 0.35x speed', () => {
@@ -163,7 +163,7 @@ describe('runCreatureTurns — energy and speed', () => {
 
   it('a creature idle for 10 ticks does not then get 10 actions', () => {
     // Far away and unaware (awareness 8): it idles, spending its actions on nothing.
-    const { arena, monster } = corridor('radroach', { awareness: 3, x: 50 });
+    const { arena, monster } = corridor('radroach', { awareness: 3, x: 35 });
     for (let i = 0; i < 10; i++) runCreatureTurns(arena.state, () => 0.999, arena.events);
     expect(monster.energy).toBeLessThanOrEqual(NORMAL_SPEED);
 

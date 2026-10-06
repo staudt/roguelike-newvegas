@@ -3,6 +3,7 @@ import { createGameState, type GameState, type Space } from '../../src/engine/Ga
 import type { Monster } from '../../src/entities/Monster';
 import type { Npc } from '../../src/entities/Npc';
 import { createPlayer } from '../../src/entities/Player';
+import { VisibleSet } from '../../src/fov/VisibleSet';
 import { createEmptyGrid, setTileId, type MapGrid } from '../../src/world/GameMap';
 import type { RNG } from '../../src/utils/RNG';
 
@@ -56,14 +57,12 @@ export function buildArena(opts: ArenaOptions): Arena {
     id: 'arena',
     name: 'Arena',
     indoor: opts.indoor ?? false,
-    worldOrigin: { x: 0, y: 0 },
     grid,
     npcs: opts.npcs ?? [],
     monsters: opts.monsters ?? [],
     transitions: [],
     places: [],
-    visible: new Uint8Array(opts.width * opts.height),
-    explored: new Uint8Array(opts.width * opts.height),
+    visible: VisibleSet.empty(),
   };
 
   const state = createGameState(createPlayer(opts.player.x, opts.player.y), { arena: space }, 'arena');

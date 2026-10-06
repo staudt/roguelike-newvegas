@@ -8,6 +8,7 @@ import { hasLineOfSight } from '../src/fov/LineOfSight';
 import { computeVisible, isVisible } from '../src/fov/Visibility';
 import type { RNG } from '../src/utils/RNG';
 import { canStep, createEmptyGrid, getTileId, setTileId } from '../src/world/GameMap';
+import type { FlatMap } from '../src/world/FlatMap';
 import { buildArena, type Arena } from './helpers/fixtures';
 
 const NEVER_WANDER: RNG = () => 0.999;
@@ -124,7 +125,7 @@ describe('doors and sight', () => {
   it('bumping the door open in the real engine reveals the room on the next view', () => {
     const grid = roomGrid();
     const arena = buildArena({ width: 14, height: 9, player: { x: 3, y: 4 } });
-    arena.grid.tiles = grid.tiles;
+    (arena.grid as FlatMap).tiles.set((grid as FlatMap).tiles);
     const space = getActiveSpace(arena.state);
     expect(isVisible(computeVisible(space.grid, { x: 3, y: 4 }, 12), space.grid, 6, 4)).toBe(false);
     tryMovePlayer(arena.state, 'E', arena.events);

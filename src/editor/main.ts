@@ -1,9 +1,10 @@
 import { FONT_FAMILY, LINE_HEIGHT_RATIO } from '../config/constants';
 import { GROUND_LEVELS, MAX_GROUND_HEIGHT, PALETTE } from '../config/palette';
-import { isConnectedWall, wallGlyph } from '../ui/WallGlyphs';
 import { linePoints, type Point } from '../utils/geometry';
-import { TILES, visualFor } from '../world/Tile';
-import type { SpaceJSON } from '../world/MapLoader';
+import { CHUNK_SIZE } from '../world/ChunkedMap';
+import type { ChunkJSON } from '../world/ChunkCodec';
+import { TILES, VOID_TILE, tileIdOf, tileIndex, visualFor } from '../world/Tile';
+import type { TileMap } from '../world/TileMap';
 import {
   buildBuilding,
   defaultDoorOffset,
@@ -13,71 +14,117 @@ import {
   MIN_BUILDING_W,
   outsideDoorWalkable,
   validateBuilding,
+  type BuildingContext,
   type BuildingRect,
   type DoorSide,
 } from '../world/buildingTemplate';
 import { INTERACTION_LABELS, type InteractionId } from '../entities/Npc';
 import { MONSTERS } from '../entities/MonsterData';
-import { type EditableMonster, type EditableNpc, type EditablePlace, type EditableTransition, MapDocument } from './MapDocument';
+import {
+  FILL_CAP,
+  MapDocument,
+  type EditableMonster,
+  type EditableNpc,
+  type EditablePlace,
+  type EditableTransition,
+  type ExpandFill,
+  type ExpandSide,
+  type FlatSpaceJSON,
+  type SavePlan,
+  type WorldMetaJSON,
+} from './MapDocument';
 
 /**
  * The map editor.
  *
- * Loads a `SpaceJSON` file over the dev-only `/__map` route, lets you paint tiles/heights and
- * place NPCs/transitions on a canvas rendered with the game's own `visualFor`/`wallGlyph`, and
- * saves back to the same route (falling back to a file download when there is no dev server).
+ * Edits the chunked world (world.json + chunks/ over the dev-only `/__world` route) or a flat
+ * space file (over `/__map`). The canvas is only as big as the area you look through: it draws
+ * the visible cells of the map, so the world can be arbitrarily large. Pan with the middle mouse
+ * button, Space + drag, arrow keys or the wheel; zoom with +/- or Ctrl + wheel; the minimap
+ * (bottom-right) shows the whole world and jumps on click.
  *
  * Deliberately a separate page from the game — see editor.html / vite.config.ts. It shares the
  * tile table, palette and on-disk JSON contract with the game, and nothing else.
  */
 
 type MapFile = string;
-const WORLD_FILE = 'worldMap.json';
-/** Used when the dev server can't list the map directory. */
-const FALLBACK_FILES = ['worldMap.json'];
+/** The dropdown value for the chunked world; flat space files use their file name. */
+const WORLD_FILE = 'world';
+/** The pre-chunk flat world file; superseded by world.json + chunks and never offered for editing. */
+const LEGACY_WORLD_FILE = 'worldMap.json';
 
 interface SpaceEntry {
   file: MapFile;
-  id: string;
   name: string;
 }
 
 const DEFAULT_CELL = 22;
-const ZOOM_STEPS = [10, 14, 18, 22, 28, 36];
+const ZOOM_STEPS = [2, 4, 6, 10, 14, 18, 22, 28, 36];
 
 type Mode = 'tile' | 'height' | 'npc' | 'monster' | 'transition';
 type TileTool = 'pencil' | 'line' | 'rect' | 'box' | 'building' | 'fill' | 'pick';
 type HeightTool = 'raise' | 'lower' | 'set';
 
-const PAINTABLE_TILES = ['ground', 'rock', 'wall', 'door', 'openDoor', 'floor'] as const;
+const PAINTABLE_TILES = ['ground', 'rock', 'wall', 'door', 'openDoor', 'floor', 'void'] as const;
 
-async function fetchSpace(file: MapFile): Promise<SpaceJSON> {
-  const response = await fetch(`/__map?file=${file}`);
-  if (!response.ok) throw new Error(`GET /__map?file=${file} -> ${response.status}`);
-  return (await response.json()) as SpaceJSON;
+const MINIMAP_MAX_W = 220;
+const MINIMAP_MAX_H = 170;
+
+/** Connected wall glyphs, the same table the game's WallGlyphs uses (bitmask N=1 S=2 W=4 E=8). */
+const WALL_GLYPHS = ['─', '│', '│', '│', '─', '┘', '┐', '┤', '─', '└', '┌', '├', '─', '┴', '┬', '┼'];
+const WALL_TILE = tileIndex('wall');
+
+function wallGlyphAt(map: TileMap, x: number, y: number): string {
+  let mask = 0;
+  if (map.getTile(x, y - 1) === WALL_TILE) mask |= 1;
+  if (map.getTile(x, y + 1) === WALL_TILE) mask |= 2;
+  if (map.getTile(x - 1, y) === WALL_TILE) mask |= 4;
+  if (map.getTile(x + 1, y) === WALL_TILE) mask |= 8;
+  return WALL_GLYPHS[mask]!;
+}
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`GET ${url} -> ${response.status}`);
+  return (await response.json()) as T;
+}
+
+async function fetchWorld(): Promise<{ meta: WorldMetaJSON; chunks: ChunkJSON[] }> {
+  const meta = await fetchJson<WorldMetaJSON>('/__world?meta=1');
+  const list = await fetchJson<Array<{ cx: number; cy: number }>>('/__world?list=1');
+  const chunks = await Promise.all(list.map((c) => fetchJson<ChunkJSON>(`/__world?chunk=${c.cx},${c.cy}`)));
+  return { meta, chunks };
 }
 
 async function fetchSpaceList(): Promise<SpaceEntry[]> {
-  let files: string[];
+  let files: string[] = [];
   try {
-    const response = await fetch('/__map?list=1');
-    if (!response.ok) throw new Error(String(response.status));
-    files = (await response.json()) as string[];
+    files = await fetchJson<string[]>('/__map?list=1');
   } catch {
-    files = FALLBACK_FILES;
+    files = [];
   }
-  const entries: SpaceEntry[] = [];
+  const entries: SpaceEntry[] = [{ file: WORLD_FILE, name: 'World' }];
+  const flat: SpaceEntry[] = [];
   for (const file of files) {
+    if (file === LEGACY_WORLD_FILE || file === 'world.json') continue; // the world has its own entry
     try {
-      const data = await fetchSpace(file);
-      entries.push({ file, id: data.id, name: data.name });
+      const data = await fetchJson<FlatSpaceJSON>(`/__map?file=${file}`);
+      flat.push({ file, name: data.name });
     } catch {
-      entries.push({ file, id: file.replace(/\.json$/, ''), name: file });
+      flat.push({ file, name: file });
     }
   }
-  // World first, then the rest by display name.
-  entries.sort((a, b) => (a.file === WORLD_FILE ? -1 : b.file === WORLD_FILE ? 1 : a.name.localeCompare(b.name)));
-  return entries;
+  flat.sort((a, b) => a.name.localeCompare(b.name));
+  return [...entries, ...flat];
+}
+
+function readSavedView(): { file: string; camX: number; camY: number; cell: number } | null {
+  try {
+    const raw = sessionStorage.getItem('editorView');
+    return raw ? (JSON.parse(raw) as { file: string; camX: number; camY: number; cell: number }) : null;
+  } catch {
+    return null;
+  }
 }
 
 async function boot(): Promise<void> {
@@ -92,21 +139,38 @@ async function boot(): Promise<void> {
   document.head.insertAdjacentHTML('beforeend', `<style>${STYLE}</style>`);
 
   const fileSelect = root.querySelector<HTMLSelectElement>('#file')!;
+  const viewport = root.querySelector<HTMLElement>('#viewport')!;
   const canvas = root.querySelector<HTMLCanvasElement>('#map')!;
   const ctxOrNull = canvas.getContext('2d');
   if (!ctxOrNull) throw new Error('Canvas 2D context unavailable');
   const ctx = ctxOrNull;
-  const status = root.querySelector<HTMLDivElement>('#status')!;
+  const minimap = root.querySelector<HTMLCanvasElement>('#minimap')!;
+  const miniCtx = minimap.getContext('2d')!;
+  const status = root.querySelector<HTMLSpanElement>('#status')!;
+  const note = root.querySelector<HTMLSpanElement>('#note')!;
   const loadError = root.querySelector<HTMLDivElement>('#load-error')!;
   const paletteEl = root.querySelector<HTMLDivElement>('#palette')!;
+  const sizeEl = root.querySelector<HTMLDivElement>('#size')!;
   const inspectorEl = root.querySelector<HTMLDivElement>('#inspector')!;
   const saveButton = root.querySelector<HTMLButtonElement>('#save')!;
+  const chunksButton = root.querySelector<HTMLButtonElement>('#chunks')!;
 
-  let currentFile: MapFile = 'worldMap.json';
+  let currentFile: MapFile = WORLD_FILE;
   let doc: MapDocument | null = null;
+
   /** Cell height in px (the zoom step). Width follows from the font so cells match the game. */
   let cell = DEFAULT_CELL;
   let cellW = DEFAULT_CELL;
+  let fontSpec = '';
+  /** World coordinate (in cells, fractional) at the canvas's top-left corner. */
+  let camX = 0;
+  let camY = 0;
+  let showChunks = true;
+  /** The last cell the mouse was over, for "Add chunk at cursor" (the button click moves the mouse away). */
+  let cursorCell: Point | null = null;
+  let spaceDown = false;
+  let panning: { startX: number; startY: number; camX: number; camY: number } | null = null;
+
   /** Where the mouse is during a line/rect/box drag, for the live outline. */
   let previewTo: Point | null = null;
   let dirty = false;
@@ -116,6 +180,8 @@ async function boot(): Promise<void> {
   let buildingRect: BuildingRect | null = null;
   let buildingForm = { name: '', side: 'S' as DoorSide, offset: 1 };
   let buildingMessage = '';
+  let expandFill: ExpandFill = 'ground';
+  let lastMetaText = '';
 
   let mode: Mode = 'tile';
   let tileTool: TileTool = 'pencil';
@@ -133,6 +199,23 @@ async function boot(): Promise<void> {
   /** Cells already touched this stroke — keeps raise/lower from double-applying on a slow drag. */
   let strokeVisited = new Set<string>();
 
+  // --- small helpers -------------------------------------------------------------------------
+
+  let noteTimer = 0;
+  function say(message: string): void {
+    note.textContent = message;
+    window.clearTimeout(noteTimer);
+    noteTimer = window.setTimeout(() => (note.textContent = ''), 8000);
+  }
+
+  function markDirty(): void {
+    dirty = true;
+    minimapStale = true;
+    saveButton.textContent = 'Save •';
+    saveButton.classList.add('unsaved');
+    refreshSize();
+  }
+
   // --- loading --------------------------------------------------------------------------------
 
   let loadSerial = 0;
@@ -140,13 +223,21 @@ async function boot(): Promise<void> {
   async function loadFile(file: MapFile): Promise<void> {
     const serial = ++loadSerial;
     try {
-      const data = await fetchSpace(file);
+      let next: MapDocument;
+      if (file === WORLD_FILE) {
+        const { meta, chunks } = await fetchWorld();
+        next = MapDocument.fromWorld(meta, chunks);
+      } else {
+        next = MapDocument.fromFlat(await fetchJson<FlatSpaceJSON>(`/__map?file=${file}`));
+      }
       if (serial !== loadSerial) return; // a newer load superseded this one
-      doc = new MapDocument(data);
+      doc = next;
+      lastMetaText = doc.kind === 'world' ? doc.metaText() : '';
       currentFile = file;
       fileSelect.value = file;
       history.replaceState(null, '', `#${file}`);
       dirty = false;
+      minimapStale = true;
       selectedPlace = null;
       buildingRect = null;
       buildingMessage = '';
@@ -156,9 +247,19 @@ async function boot(): Promise<void> {
       loadError.textContent = '';
       loadError.className = '';
       saveButton.textContent = 'Save';
-      setZoom(cell);
+      saveButton.classList.remove('unsaved');
+      resizeCanvas();
+      const saved = readSavedView();
+      if (saved && saved.file === file) {
+        applyZoomStep(saved.cell);
+        camX = saved.camX;
+        camY = saved.camY;
+      } else {
+        fitToContent();
+      }
       refreshPalette();
       refreshInspector();
+      refreshSize();
       redraw();
     } catch (error) {
       loadError.textContent =
@@ -181,7 +282,7 @@ async function boot(): Promise<void> {
     for (const entry of spaceEntries) {
       const option = document.createElement('option');
       option.value = entry.file;
-      option.textContent = entry.file === WORLD_FILE ? `World (${entry.name})` : entry.name;
+      option.textContent = entry.file === WORLD_FILE ? `World (${doc?.kind === 'world' ? doc.name : 'Goodsprings'})` : entry.name;
       fileSelect.append(option);
     }
     fileSelect.value = currentFile;
@@ -196,46 +297,153 @@ async function boot(): Promise<void> {
     if (dirty) event.preventDefault();
   });
 
-  // --- drawing ----------------------------------------------------------------------------------
+  // --- view: size, zoom, camera -----------------------------------------------------------------
 
-  function setZoom(next: number): void {
-    if (!doc) return;
-    cell = next;
+  function metricsFor(step: number): { width: number; font: string } {
     // Same proportions as the game: cell height = font size * LINE_HEIGHT_RATIO, cell width = the
-    // font's real advance width. (Setting canvas size resets the context, so the font goes after.)
-    const fontSize = Math.max(6, Math.round(cell / LINE_HEIGHT_RATIO));
-    const fontSpec = `${fontSize}px ${FONT_FAMILY}`;
-    ctx.font = fontSpec;
-    cellW = Math.max(1, Math.ceil(ctx.measureText('M').width));
-    canvas.width = doc.width * cellW;
-    canvas.height = doc.height * cell;
-    ctx.font = fontSpec;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    // font's real advance width.
+    // Below the smallest readable font no glyphs are drawn, so the width just keeps the game's aspect.
+    const fontSize = Math.max(6, Math.round(step / LINE_HEIGHT_RATIO));
+    const font = `${fontSize}px ${FONT_FAMILY}`;
+    ctx.font = font;
+    const measured = Math.max(1, Math.ceil(ctx.measureText('M').width));
+    return { width: step >= 10 ? measured : Math.max(1, Math.round((step * measured) / (fontSize * LINE_HEIGHT_RATIO))), font };
+  }
+
+  function applyZoomStep(step: number): void {
+    cell = step;
+    const m = metricsFor(step);
+    cellW = m.width;
+    fontSpec = m.font;
     root.querySelector('#zoom')!.textContent = `${cell}px`;
+  }
+
+  function resizeCanvas(): void {
+    const w = Math.max(1, viewport.clientWidth);
+    const h = Math.max(1, viewport.clientHeight);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+  }
+
+  /** Zoom to `step`, keeping the world point under screen position (px, py) where it is. */
+  function setZoom(step: number, px = canvas.width / 2, py = canvas.height / 2): void {
+    if (step === cell) return;
+    const wx = camX + px / cellW;
+    const wy = camY + py / cell;
+    applyZoomStep(step);
+    camX = wx - px / cellW;
+    camY = wy - py / cell;
     redraw();
   }
 
+  function stepZoom(delta: number, px?: number, py?: number): void {
+    const index = ZOOM_STEPS.indexOf(cell);
+    const next = ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, Math.max(0, index + delta))];
+    if (next !== undefined) setZoom(next, px, py);
+  }
+
+  /** Tight rectangle around every non-void cell (falls back to the map bounds). */
+  function contentExtents(): { x: number; y: number; width: number; height: number } {
+    if (!doc) return { x: 0, y: 0, width: 1, height: 1 };
+    const b = doc.map.bounds();
+    const chunked = doc.chunked();
+    if (!chunked) return b;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const chunk of chunked.chunkList()) {
+      for (let i = 0; i < chunk.tiles.length; i++) {
+        if (chunk.tiles[i] === VOID_TILE) continue;
+        const x = chunk.cx * CHUNK_SIZE + (i % CHUNK_SIZE);
+        const y = chunk.cy * CHUNK_SIZE + Math.floor(i / CHUNK_SIZE);
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+    if (minX > maxX) return b.width > 0 ? b : { x: 0, y: 0, width: 40, height: 30 };
+    return { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+  }
+
+  /** Largest zoom at which the content fits, then centered. */
+  function fitToContent(): void {
+    const e = contentExtents();
+    let chosen = ZOOM_STEPS[0]!;
+    for (const step of ZOOM_STEPS) {
+      const m = metricsFor(step);
+      if ((e.width + 2) * m.width <= canvas.width && (e.height + 2) * step <= canvas.height) chosen = step;
+    }
+    applyZoomStep(chosen);
+    camX = e.x + e.width / 2 - canvas.width / cellW / 2;
+    camY = e.y + e.height / 2 - canvas.height / cell / 2;
+  }
+
+  function saveView(): void {
+    try {
+      sessionStorage.setItem('editorView', JSON.stringify({ file: currentFile, camX, camY, cell }));
+    } catch {
+      /* storage unavailable: the view just won't survive a reload */
+    }
+  }
+
+  const resizeObserver = new ResizeObserver(() => {
+    resizeCanvas();
+    redraw();
+  });
+  resizeObserver.observe(viewport);
+
+  // --- drawing ----------------------------------------------------------------------------------
+
+  let frame = 0;
   function redraw(): void {
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      drawNow();
+    });
+  }
+
+  const sx = (wx: number): number => (wx - camX) * cellW;
+  const sy = (wy: number): number => (wy - camY) * cell;
+
+  function drawNow(): void {
     if (!doc) return;
+    saveView();
     ctx.fillStyle = PALETTE.unexplored;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.font = fontSpec;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
 
-    const grid = doc.toGrid();
-    for (let y = 0; y < doc.height; y++) {
-      for (let x = 0; x < doc.width; x++) {
-        const tileId = doc.tileAt(x, y);
-        const visual = visualFor(tileId, doc.heightAt(x, y));
-        const glyph = isConnectedWall(tileId) ? wallGlyph(grid, x, y) : visual.glyph;
-        const px = x * cellW;
-        const py = y * cell;
+    const map = doc.map;
+    const x0 = Math.floor(camX);
+    const y0 = Math.floor(camY);
+    const x1 = Math.ceil(camX + canvas.width / cellW);
+    const y1 = Math.ceil(camY + canvas.height / cell);
+    const text = cell >= 10;
+
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) {
+        const tile = map.getTile(x, y);
+        if (tile === VOID_TILE) continue; // already black
+        const id = tileIdOf(tile);
+        const visual = visualFor(id, map.getHeight(x, y));
+        const px = (x - camX) * cellW;
+        const py = (y - camY) * cell;
         ctx.fillStyle = visual.bg;
         ctx.fillRect(px, py, cellW, cell);
+        if (!text) continue;
         ctx.fillStyle = visual.fg;
-        ctx.fillText(glyph, px + cellW / 2, py + cell / 2);
+        ctx.fillText(id === 'wall' ? wallGlyphAt(map, x, y) : visual.glyph, px + cellW / 2, py + cell / 2);
       }
     }
 
+    if (showChunks && doc.kind === 'world') drawChunkLines(x0, y0, x1, y1);
+    drawOrigin();
     drawPlaces();
     for (const transition of doc.transitions) {
       drawMarker(transition.x, transition.y, '>', PALETTE.interactableFg, transition === selectedTransition);
@@ -248,12 +456,73 @@ async function boot(): Promise<void> {
     for (const npc of doc.npcs) {
       drawMarker(npc.x, npc.y, '@', npc.fg ?? PALETTE.npcFg, npc.id === selectedNpcId);
     }
+    if (doc.playerStart) drawMarker(doc.playerStart.x, doc.playerStart.y, '@', PALETTE.playerFg, false);
 
-    if (doc.playerStart) {
-      drawMarker(doc.playerStart.x, doc.playerStart.y, '@', PALETTE.playerFg, false);
+    drawShapePreview(x0, y0, x1, y1);
+    if (cursorCell) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(sx(cursorCell.x) + 0.5, sy(cursorCell.y) + 0.5, cellW - 1, cell - 1);
     }
+    drawMinimap();
+  }
 
-    drawShapePreview();
+  /** Faint lines on chunk boundaries, and a stronger outline around chunks that actually exist. */
+  function drawChunkLines(x0: number, y0: number, x1: number, y1: number): void {
+    if (!doc) return;
+    const chunked = doc.chunked();
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(120, 200, 255, 0.16)';
+    ctx.beginPath();
+    for (let x = Math.floor(x0 / CHUNK_SIZE) * CHUNK_SIZE; x <= x1; x += CHUNK_SIZE) {
+      ctx.moveTo(Math.round(sx(x)) + 0.5, 0);
+      ctx.lineTo(Math.round(sx(x)) + 0.5, canvas.height);
+    }
+    for (let y = Math.floor(y0 / CHUNK_SIZE) * CHUNK_SIZE; y <= y1; y += CHUNK_SIZE) {
+      ctx.moveTo(0, Math.round(sy(y)) + 0.5);
+      ctx.lineTo(canvas.width, Math.round(sy(y)) + 0.5);
+    }
+    ctx.stroke();
+    if (chunked) {
+      ctx.strokeStyle = 'rgba(120, 200, 255, 0.5)';
+      ctx.setLineDash([6, 4]);
+      for (const c of chunked.chunkList()) {
+        const gx = c.cx * CHUNK_SIZE;
+        const gy = c.cy * CHUNK_SIZE;
+        if (gx > x1 || gy > y1 || gx + CHUNK_SIZE < x0 || gy + CHUNK_SIZE < y0) continue;
+        ctx.strokeRect(sx(gx) + 0.5, sy(gy) + 0.5, CHUNK_SIZE * cellW - 1, CHUNK_SIZE * cell - 1);
+        if (cell >= 10) {
+          ctx.fillStyle = 'rgba(120, 200, 255, 0.55)';
+          ctx.font = `${Math.max(9, Math.round(cell * 0.45))}px ${FONT_FAMILY}`;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          ctx.fillText(`chunk ${c.cx},${c.cy}${c.dirty ? ' *' : ''}`, sx(gx) + 4, sy(gy) + 4);
+        }
+      }
+    }
+    ctx.restore();
+  }
+
+  /** The world origin: amber axis lines through (0, 0) and a small label. */
+  function drawOrigin(): void {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 176, 0, 0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const ox = Math.round(sx(0)) + 0.5;
+    const oy = Math.round(sy(0)) + 0.5;
+    ctx.moveTo(ox, 0);
+    ctx.lineTo(ox, canvas.height);
+    ctx.moveTo(0, oy);
+    ctx.lineTo(canvas.width, oy);
+    ctx.stroke();
+    ctx.fillStyle = PALETTE.uiAmber;
+    ctx.font = `11px ${FONT_FAMILY}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('0,0', ox + 3, oy + 18);
+    ctx.restore();
   }
 
   /** Faint dashed amber outline + name for each place, so the named rectangles are visible. */
@@ -267,19 +536,35 @@ async function boot(): Promise<void> {
       ctx.globalAlpha = selected ? 1 : 0.45;
       ctx.lineWidth = selected ? 2 : 1;
       ctx.setLineDash([4, 3]);
-      ctx.strokeRect(r.x * cellW + 0.5, r.y * cell + 0.5, r.width * cellW - 1, r.height * cell - 1);
+      ctx.strokeRect(sx(r.x) + 0.5, sy(r.y) + 0.5, r.width * cellW - 1, r.height * cell - 1);
       ctx.setLineDash([]);
+      if (cell < 10) continue;
       ctx.fillStyle = PALETTE.uiAmber;
       ctx.font = `${Math.max(8, Math.round(cell * 0.45))}px ${FONT_FAMILY}`;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText(place.name, r.x * cellW + 3, r.y * cell + 3);
+      ctx.fillText(place.name, sx(r.x) + 3, sy(r.y) + 3);
     }
     ctx.restore();
   }
 
+  /** Draws one ghost cell (a tile about to be painted) with a green outline. */
+  function drawGhost(x: number, y: number, tileId: string): void {
+    const visual = visualFor(tileId, 0);
+    const px = sx(x);
+    const py = sy(y);
+    ctx.fillStyle = tileId === 'void' ? '#1c1c1c' : visual.bg;
+    ctx.fillRect(px, py, cellW, cell);
+    if (cell >= 10) {
+      ctx.fillStyle = visual.fg;
+      ctx.fillText(visual.glyph, px + cellW / 2, py + cell / 2);
+    }
+    ctx.strokeStyle = PALETTE.uiGreen;
+    ctx.strokeRect(px + 0.5, py + 0.5, cellW - 1, cell - 1);
+  }
+
   /** Live outline of the line/rect/box being dragged, so you can see it before letting go. */
-  function drawShapePreview(): void {
+  function drawShapePreview(vx0: number, vy0: number, vx1: number, vy1: number): void {
     if (!doc || mode !== 'tile') return;
     if (tileTool === 'building') {
       const rect = painting && anchor && previewTo ? rectBetween(anchor, previewTo) : buildingRect;
@@ -289,26 +574,24 @@ async function boot(): Promise<void> {
     if (!painting || !anchor || !previewTo) return;
     if (tileTool !== 'line' && tileTool !== 'rect' && tileTool !== 'box') return;
 
-    const ghost = new MapDocument(doc.toJSON());
-    if (tileTool === 'line') ghost.lineTile(anchor, previewTo, brushTile);
-    if (tileTool === 'rect') ghost.rectTile(anchor, previewTo, brushTile);
-    if (tileTool === 'box') ghost.boxTile(anchor, previewTo, brushTile);
-
     ctx.save();
     ctx.globalAlpha = 0.75;
-    const ghostGrid = ghost.toGrid();
-    for (let y = 0; y < ghost.height; y++) {
-      for (let x = 0; x < ghost.width; x++) {
-        if (ghost.tileAt(x, y) === doc.tileAt(x, y)) continue;
-        const tileId = ghost.tileAt(x, y);
-        const visual = visualFor(tileId, ghost.heightAt(x, y));
-        const glyph = isConnectedWall(tileId) ? wallGlyph(ghostGrid, x, y) : visual.glyph;
-        ctx.fillStyle = visual.bg;
-        ctx.fillRect(x * cellW, y * cell, cellW, cell);
-        ctx.fillStyle = visual.fg;
-        ctx.fillText(glyph, x * cellW + cellW / 2, y * cell + cell / 2);
-        ctx.strokeStyle = PALETTE.uiGreen;
-        ctx.strokeRect(x * cellW + 0.5, y * cell + 0.5, cellW - 1, cell - 1);
+    ctx.lineWidth = 1;
+    if (tileTool === 'line') {
+      for (const p of linePoints(anchor, previewTo)) {
+        if (p.x >= vx0 && p.x < vx1 && p.y >= vy0 && p.y < vy1 && doc.canPaint(p.x, p.y)) drawGhost(p.x, p.y, brushTile);
+      }
+    } else {
+      const r = rectBetween(anchor, previewTo);
+      const gx0 = Math.max(r.x, vx0);
+      const gx1 = Math.min(r.x + r.w - 1, vx1 - 1);
+      const gy0 = Math.max(r.y, vy0);
+      const gy1 = Math.min(r.y + r.h - 1, vy1 - 1);
+      for (let y = gy0; y <= gy1; y++) {
+        for (let x = gx0; x <= gx1; x++) {
+          const edge = x === r.x || y === r.y || x === r.x + r.w - 1 || y === r.y + r.h - 1;
+          if ((tileTool === 'rect' || edge) && doc.canPaint(x, y)) drawGhost(x, y, brushTile);
+        }
       }
     }
     ctx.restore();
@@ -330,11 +613,14 @@ async function boot(): Promise<void> {
       for (let x = rect.x; x < rect.x + rect.w; x++) {
         const onRing = x === rect.x || y === rect.y || x === rect.x + rect.w - 1 || y === rect.y + rect.h - 1;
         if (!onRing) continue;
+        const px = sx(x);
+        const py = sy(y);
+        if (px + cellW < 0 || py + cell < 0 || px > canvas.width || py > canvas.height) continue;
         const visual = visualFor('wall', 0);
         ctx.fillStyle = visual.bg;
-        ctx.fillRect(x * cellW, y * cell, cellW, cell);
+        ctx.fillRect(px, py, cellW, cell);
         ctx.fillStyle = visual.fg;
-        ctx.fillText(visual.glyph, x * cellW + cellW / 2, y * cell + cell / 2);
+        ctx.fillText(visual.glyph, px + cellW / 2, py + cell / 2);
       }
     }
     if (!dragging && big) {
@@ -343,39 +629,38 @@ async function boot(): Promise<void> {
         const door = doorCells(rect, buildingForm.side, buildingForm.offset).door;
         const visual = visualFor('door', 0);
         ctx.fillStyle = visual.bg;
-        ctx.fillRect(door.x * cellW, door.y * cell, cellW, cell);
+        ctx.fillRect(sx(door.x), sy(door.y), cellW, cell);
         ctx.fillStyle = visual.fg;
-        ctx.fillText(visual.glyph, door.x * cellW + cellW / 2, door.y * cell + cell / 2);
+        ctx.fillText(visual.glyph, sx(door.x) + cellW / 2, sy(door.y) + cell / 2);
       }
     }
     ctx.strokeStyle = big ? PALETTE.uiGreen : PALETTE.hostileRing;
     ctx.lineWidth = 2;
-    ctx.strokeRect(rect.x * cellW + 1, rect.y * cell + 1, rect.w * cellW - 2, rect.h * cell - 2);
+    ctx.strokeRect(sx(rect.x) + 1, sy(rect.y) + 1, rect.w * cellW - 2, rect.h * cell - 2);
     ctx.restore();
   }
 
   /** Thin red ring marking a hostile monster (the selection box is a square, so the two read differently). */
   function drawRing(wx: number, wy: number): void {
-    const x = wx - (doc?.worldOrigin.x ?? 0);
-    const y = wy - (doc?.worldOrigin.y ?? 0);
+    if (cell < 10) return;
     ctx.save();
     ctx.strokeStyle = PALETTE.hostileRing;
     ctx.globalAlpha = 0.8;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.ellipse(x * cellW + cellW / 2, y * cell + cell / 2, cellW / 2 - 1, cell / 2 - 1, 0, 0, Math.PI * 2);
+    ctx.ellipse(sx(wx) + cellW / 2, sy(wy) + cell / 2, cellW / 2 - 1, cell / 2 - 1, 0, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
   }
 
-  /** Markers (NPCs, monsters, transitions, player start) are stored in WORLD coordinates; the grid is local. */
+  /** Markers (NPCs, monsters, transitions, player start) sit at WORLD coordinates. */
   function drawMarker(wx: number, wy: number, glyph: string, fg: string, selected: boolean): void {
-    const x = wx - (doc?.worldOrigin.x ?? 0);
-    const y = wy - (doc?.worldOrigin.y ?? 0);
-    const px = x * cellW;
-    const py = y * cell;
+    const px = sx(wx);
+    const py = sy(wy);
+    if (px + cellW < 0 || py + cell < 0 || px > canvas.width || py > canvas.height) return;
     ctx.fillStyle = fg;
-    ctx.fillText(glyph, px + cellW / 2, py + cell / 2);
+    if (cell >= 10) ctx.fillText(glyph, px + cellW / 2, py + cell / 2);
+    else ctx.fillRect(px, py, cellW, cell);
     if (selected) {
       ctx.save();
       ctx.strokeStyle = PALETTE.hostileRing;
@@ -385,26 +670,116 @@ async function boot(): Promise<void> {
     }
   }
 
+  // --- minimap ------------------------------------------------------------------------------------
+
+  let minimapStale = true;
+  const mini = { canvas: document.createElement('canvas'), x: 0, y: 0, scale: 1 };
+
+  /**
+   * Whole-world overview, one cached bitmap rebuilt lazily after edits. It samples one cell per
+   * minimap pixel, so the cost depends on the minimap's size, never on the world's.
+   */
+  function rebuildMinimap(): void {
+    if (!doc) return;
+    const b = doc.map.bounds();
+    if (b.width === 0 || b.height === 0) {
+      mini.canvas.width = 1;
+      mini.canvas.height = 1;
+      mini.x = 0;
+      mini.y = 0;
+      mini.scale = 1;
+      return;
+    }
+    const scale = Math.min(MINIMAP_MAX_W / b.width, MINIMAP_MAX_H / b.height, 4);
+    const w = Math.max(1, Math.floor(b.width * scale));
+    const h = Math.max(1, Math.floor(b.height * scale));
+    mini.canvas.width = w;
+    mini.canvas.height = h;
+    mini.x = b.x;
+    mini.y = b.y;
+    mini.scale = scale;
+    const m = mini.canvas.getContext('2d')!;
+    m.fillStyle = '#000';
+    m.fillRect(0, 0, w, h);
+    const block = Math.max(1, Math.ceil(scale));
+    const colors = new Map<number, string>();
+    for (let j = 0; j < h; j++) {
+      for (let i = 0; i < w; i++) {
+        const wx = b.x + Math.floor((i + 0.5) / scale);
+        const wy = b.y + Math.floor((j + 0.5) / scale);
+        const tile = doc.map.getTile(wx, wy);
+        if (tile === VOID_TILE) continue;
+        const height = doc.map.getHeight(wx, wy);
+        const key = tile * 8 + height;
+        let color = colors.get(key);
+        if (color === undefined) {
+          color = visualFor(tileIdOf(tile), height).bg;
+          // Walls and doors are dark on dark; lighten them so structures show on the overview.
+          const id = tileIdOf(tile);
+          if (id === 'wall') color = '#b0845a';
+          else if (id === 'door' || id === 'openDoor') color = PALETTE.doorFg;
+          else if (id === 'rock') color = '#5a5650';
+          colors.set(key, color);
+        }
+        m.fillStyle = color;
+        m.fillRect(i, j, scale >= 1 ? block : 1, scale >= 1 ? block : 1);
+      }
+    }
+  }
+
+  function drawMinimap(): void {
+    if (!doc) return;
+    if (minimapStale) {
+      rebuildMinimap();
+      minimapStale = false;
+    }
+    minimap.width = mini.canvas.width;
+    minimap.height = mini.canvas.height;
+    miniCtx.drawImage(mini.canvas, 0, 0);
+    const vx = (camX - mini.x) * mini.scale;
+    const vy = (camY - mini.y) * mini.scale;
+    const vw = (canvas.width / cellW) * mini.scale;
+    const vh = (canvas.height / cell) * mini.scale;
+    miniCtx.strokeStyle = PALETTE.uiGreen;
+    miniCtx.lineWidth = 1;
+    miniCtx.strokeRect(Math.round(vx) + 0.5, Math.round(vy) + 0.5, Math.max(2, Math.round(vw)), Math.max(2, Math.round(vh)));
+  }
+
+  function jumpFromMinimap(event: MouseEvent): void {
+    const box = minimap.getBoundingClientRect();
+    const mx = ((event.clientX - box.left) / box.width) * minimap.width;
+    const my = ((event.clientY - box.top) / box.height) * minimap.height;
+    camX = mini.x + mx / mini.scale - canvas.width / cellW / 2;
+    camY = mini.y + my / mini.scale - canvas.height / cell / 2;
+    redraw();
+  }
+  let miniDragging = false;
+  minimap.addEventListener('mousedown', (event) => {
+    event.stopPropagation();
+    miniDragging = true;
+    jumpFromMinimap(event);
+  });
+  window.addEventListener('mousemove', (event) => {
+    if (miniDragging) jumpFromMinimap(event);
+  });
+  window.addEventListener('mouseup', () => (miniDragging = false));
+
   // --- input: coordinates ------------------------------------------------------------------------
 
   function cellAt(event: MouseEvent): Point {
     const box = canvas.getBoundingClientRect();
-    const docRef = doc;
-    const w = docRef?.width ?? 1;
-    const h = docRef?.height ?? 1;
     return {
-      x: Math.floor(((event.clientX - box.left) / box.width) * w),
-      y: Math.floor(((event.clientY - box.top) / box.height) * h),
+      x: Math.floor(camX + (event.clientX - box.left) / cellW),
+      y: Math.floor(camY + (event.clientY - box.top) / cell),
     };
   }
 
-  function toWorld(local: Point): Point {
-    return { x: local.x + (doc?.worldOrigin.x ?? 0), y: local.y + (doc?.worldOrigin.y ?? 0) };
-  }
-
-  function markDirty(): void {
-    dirty = true;
-    saveButton.textContent = 'Save •';
+  function describeCell(at: Point): string {
+    if (!doc) return '';
+    const tile = doc.tileAt(at.x, at.y);
+    const h = doc.tileAt(at.x, at.y) === 'ground' ? ` h${doc.heightAt(at.x, at.y)}` : '';
+    const chunk = doc.kind === 'world' ? `   chunk ${at.x >> 6},${at.y >> 6}` : '';
+    return `${at.x}, ${at.y}   ${tile}${h}${chunk}`;
   }
 
   // --- input: tile mode ---------------------------------------------------------------------------
@@ -431,7 +806,9 @@ async function boot(): Promise<void> {
     anchor = at;
     if (tileTool === 'pencil') doc.paintTile(at.x, at.y, brushTile);
     if (tileTool === 'fill') {
-      doc.fillTile(at, brushTile);
+      const result = doc.fillTile(at, brushTile);
+      if (result.capped) say(`Fill stopped at ${FILL_CAP.toLocaleString()} cells (the area was too big or open).`);
+      else say(`Filled ${result.filled.toLocaleString()} cells.`);
       painting = false;
       anchor = null;
     }
@@ -587,33 +964,66 @@ async function boot(): Promise<void> {
 
   // --- input: wiring --------------------------------------------------------------------------
 
+  function setPanCursor(): void {
+    canvas.style.cursor = panning ? 'grabbing' : spaceDown ? 'grab' : 'crosshair';
+  }
+
   canvas.addEventListener('mousedown', (event) => {
     if (!doc) return;
+    if (event.button === 1 || (event.button === 0 && spaceDown)) {
+      event.preventDefault();
+      panning = { startX: event.clientX, startY: event.clientY, camX, camY };
+      setPanCursor();
+      return;
+    }
+    if (event.button !== 0) return;
     const at = cellAt(event);
+    // Markers only go on cells that exist; tiles can be painted anywhere in the world (that is
+    // how it grows), but never outside a flat space.
     if (mode === 'tile') handleTileMouseDown(at);
     if (mode === 'height') handleHeightMouseDown(at);
-    if (!doc.inBounds(at.x, at.y)) return;
-    const world = toWorld(at);
-    if (mode === 'npc') handleNpcMouseDown(world);
-    if (mode === 'monster') handleMonsterMouseDown(world);
-    if (mode === 'transition') handleTransitionMouseDown(world);
+    if (!doc.map.has(at.x, at.y)) return;
+    if (mode === 'npc') handleNpcMouseDown(at);
+    if (mode === 'monster') handleMonsterMouseDown(at);
+    if (mode === 'transition') handleTransitionMouseDown(at);
   });
 
   canvas.addEventListener('mousemove', (event) => {
     if (!doc) return;
     const at = cellAt(event);
-    const height = doc.heightAt(at.x, at.y);
-    status.textContent = `${at.x}, ${at.y}   ${doc.tileAt(at.x, at.y)}${doc.tileAt(at.x, at.y) === 'ground' ? ` h${height}` : ''}`;
+    if (!cursorCell || cursorCell.x !== at.x || cursorCell.y !== at.y) {
+      cursorCell = at;
+      status.textContent = describeCell(at);
+      redraw();
+    }
+    if (panning) return;
     if (mode === 'tile') handleTileMouseMove(at);
     if (mode === 'height') handleHeightMouseMove(at);
-    if (!doc.inBounds(at.x, at.y)) return;
-    const world = toWorld(at);
-    if (mode === 'npc') handleNpcMouseMove(world);
-    if (mode === 'monster') handleMonsterMouseMove(world);
-    if (mode === 'transition') handleTransitionMouseMove(world);
+    if (!doc.map.has(at.x, at.y)) return;
+    if (mode === 'npc') handleNpcMouseMove(at);
+    if (mode === 'monster') handleMonsterMouseMove(at);
+    if (mode === 'transition') handleTransitionMouseMove(at);
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    cursorCell = null;
+    redraw();
+  });
+
+  // Panning keeps tracking even when the pointer leaves the canvas.
+  window.addEventListener('mousemove', (event) => {
+    if (!panning) return;
+    camX = panning.camX - (event.clientX - panning.startX) / cellW;
+    camY = panning.camY - (event.clientY - panning.startY) / cell;
+    redraw();
   });
 
   window.addEventListener('mouseup', (event) => {
+    if (panning) {
+      panning = null;
+      setPanCursor();
+      return;
+    }
     if (!painting) return;
     if (doc && mode === 'tile') handleTileMouseUp(cellAt(event));
     painting = false;
@@ -621,22 +1031,54 @@ async function boot(): Promise<void> {
     previewTo = null;
   });
 
+  canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+
+  canvas.addEventListener(
+    'wheel',
+    (event) => {
+      event.preventDefault();
+      const box = canvas.getBoundingClientRect();
+      if (event.ctrlKey) {
+        stepZoom(event.deltaY < 0 ? 1 : -1, event.clientX - box.left, event.clientY - box.top);
+        return;
+      }
+      const dx = event.shiftKey ? event.deltaY : event.deltaX;
+      const dy = event.shiftKey ? 0 : event.deltaY;
+      camX += dx / cellW;
+      camY += dy / cell;
+      redraw();
+    },
+    { passive: false },
+  );
+
+  function undo(): void {
+    if (!doc?.undo()) return;
+    selectedPlace = null;
+    buildingRect = null;
+    selectedMonster = null;
+    selectedTransition = null;
+    refreshPalette();
+    refreshInspector();
+    markDirty();
+    redraw();
+  }
+
+  const PAN_KEYS: Record<string, [number, number]> = {
+    ArrowLeft: [-1, 0],
+    ArrowRight: [1, 0],
+    ArrowUp: [0, -1],
+    ArrowDown: [0, 1],
+  };
+
   window.addEventListener('keydown', (event) => {
     const target = event.target;
-    const typing = target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA');
+    const typing =
+      target instanceof HTMLElement &&
+      (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT');
 
     if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !typing) {
       event.preventDefault();
-      if (doc?.undo()) {
-        selectedPlace = null;
-        refreshPalette();
-        markDirty();
-        buildingRect = null;
-        selectedMonster = null;
-        selectedTransition = null;
-        refreshInspector();
-        redraw();
-      }
+      undo();
       return;
     }
     if ((event.ctrlKey || event.metaKey) && event.key === 's') {
@@ -644,7 +1086,32 @@ async function boot(): Promise<void> {
       void save();
       return;
     }
-    if ((event.key === 'Delete' || event.key === 'Backspace') && !typing) {
+    if (typing) return;
+
+    if (event.key === ' ') {
+      event.preventDefault();
+      spaceDown = true;
+      setPanCursor();
+      return;
+    }
+    const pan = PAN_KEYS[event.key];
+    if (pan && !event.ctrlKey) {
+      event.preventDefault();
+      const stride = event.shiftKey ? 16 : 4;
+      camX += pan[0] * stride;
+      camY += pan[1] * stride;
+      redraw();
+      return;
+    }
+    if (event.key === '+' || event.key === '=') {
+      stepZoom(1);
+      return;
+    }
+    if (event.key === '-' || event.key === '_') {
+      stepZoom(-1);
+      return;
+    }
+    if (event.key === 'Delete' || event.key === 'Backspace') {
       if (mode === 'npc' && selectedNpcId) {
         doc?.beginStroke();
         doc?.removeNpc(selectedNpcId);
@@ -672,7 +1139,103 @@ async function boot(): Promise<void> {
     }
   });
 
-  // --- chrome: mode + tool buttons --------------------------------------------------------------
+  window.addEventListener('keyup', (event) => {
+    if (event.key !== ' ') return;
+    spaceDown = false;
+    setPanCursor();
+    const target = event.target;
+    if (!(target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA'))) {
+      event.preventDefault(); // a focused button would otherwise "click" on Space release
+    }
+  });
+
+  // --- chrome: world size -----------------------------------------------------------------------
+
+  function refreshSize(): void {
+    sizeEl.innerHTML = '';
+    if (!doc || doc.kind !== 'world') {
+      sizeEl.style.display = 'none';
+      return;
+    }
+    sizeEl.style.display = '';
+    const title = document.createElement('div');
+    title.className = 'id-display';
+    title.textContent = 'World size';
+    const b = doc.map.bounds();
+    const info = document.createElement('div');
+    info.className = 'hint';
+    info.textContent =
+      b.width === 0
+        ? 'No chunks.'
+        : `${b.width} x ${b.height} cells, x ${b.x}..${b.x + b.width - 1}, y ${b.y}..${b.y + b.height - 1}; ${doc.chunkCount()} chunks of ${CHUNK_SIZE}x${CHUNK_SIZE}`;
+
+    const fill = document.createElement('select');
+    fill.id = 'expand-fill';
+    for (const [value, label] of [['ground', 'Ground h0'], ['rock', 'Rock'], ['void', 'Void']] as const) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      fill.append(option);
+    }
+    fill.value = expandFill;
+    fill.addEventListener('change', () => (expandFill = fill.value as ExpandFill));
+
+    const grid = document.createElement('div');
+    grid.className = 'tools';
+    for (const [side, label] of [['N', '+ North'], ['S', '+ South'], ['E', '+ East'], ['W', '+ West']] as const) {
+      const button = document.createElement('button');
+      button.textContent = label;
+      button.dataset['expand'] = side;
+      button.addEventListener('click', () => expand(side));
+      grid.append(button);
+    }
+
+    const cursorButtons = document.createElement('div');
+    cursorButtons.className = 'tools';
+    const add = document.createElement('button');
+    add.textContent = 'Add chunk at cursor';
+    add.id = 'add-chunk';
+    add.addEventListener('click', () => {
+      if (!doc || !cursorCell) return say('Hover the map first: the chunk under the mouse is used.');
+      const cx = cursorCell.x >> 6;
+      const cy = cursorCell.y >> 6;
+      if (doc.addChunk(cx, cy, expandFill)) {
+        say(`Added chunk ${cx},${cy}.`);
+        markDirty();
+        redraw();
+      } else {
+        say(`Chunk ${cx},${cy} already exists.`);
+      }
+    });
+    const remove = document.createElement('button');
+    remove.textContent = 'Remove chunk';
+    remove.id = 'remove-chunk';
+    remove.className = 'danger';
+    remove.addEventListener('click', () => {
+      if (!doc || !cursorCell) return say('Hover the map first: the chunk under the mouse is used.');
+      const cx = cursorCell.x >> 6;
+      const cy = cursorCell.y >> 6;
+      if (doc.removeChunk(cx, cy)) {
+        say(`Removed chunk ${cx},${cy} (its file is deleted on Save).`);
+        markDirty();
+        redraw();
+      } else {
+        say(`No chunk at ${cx},${cy}.`);
+      }
+    });
+    cursorButtons.append(add, remove);
+
+    sizeEl.append(title, info, field('Fill for new chunks', fill), grid, cursorButtons);
+  }
+
+  function expand(side: ExpandSide): void {
+    if (!doc) return;
+    const added = doc.expand(side, expandFill);
+    if (added.length === 0) return say('Nothing added.');
+    say(`Added ${added.length} chunk${added.length === 1 ? '' : 's'}: ${added.map((c) => `${c.x},${c.y}`).join(' ')}.`);
+    markDirty();
+    redraw();
+  }
 
   function setActive(selector: string, isActive: (el: HTMLButtonElement) => boolean): void {
     for (const el of root.querySelectorAll<HTMLButtonElement>(selector)) {
@@ -813,8 +1376,9 @@ async function boot(): Promise<void> {
       button.className = `swatch${brushTile === tileId ? ' on' : ''}`;
       button.style.color = visual.fg;
       button.style.background = visual.bg;
-      button.textContent = visual.glyph;
-      button.title = def.id;
+      button.textContent = tileId === 'void' ? '∅' : visual.glyph;
+      if (tileId === 'void') button.style.borderColor = PALETTE.uiDim;
+      button.title = tileId === 'void' ? 'void (erase: a hard stop)' : def.id;
       button.addEventListener('click', () => {
         brushTile = tileId;
         refreshPalette();
@@ -943,6 +1507,11 @@ async function boot(): Promise<void> {
     redraw();
   }
 
+  function buildingContext(): BuildingContext {
+    if (!doc) throw new Error('no document');
+    return { map: doc.map, npcs: doc.npcs, monsters: doc.monsters, playerStart: doc.playerStart, places: doc.places };
+  }
+
   function currentBuildingParams(rect: BuildingRect) {
     return {
       name: buildingForm.name,
@@ -984,11 +1553,10 @@ async function boot(): Promise<void> {
     messageEl.style.whiteSpace = 'pre-wrap';
     const refreshMessage = (): void => {
       if (!doc) return;
-      const json = doc.toJSON();
-      const errors = validateBuilding(json, currentBuildingParams(rect));
+      const errors = validateBuilding(buildingContext(), currentBuildingParams(rect));
       const lines = errors.map((e) => `x ${e}`);
-      if (errors.length === 0 && !outsideDoorWalkable(json, rect, buildingForm.side, buildingForm.offset)) {
-        lines.push('! The cell outside the door is not walkable (rock/wall) - the door will open onto nothing.');
+      if (errors.length === 0 && !outsideDoorWalkable(doc.map, rect, buildingForm.side, buildingForm.offset)) {
+        lines.push('! The cell outside the door is not walkable (rock/wall/void) - the door will open onto nothing.');
       }
       if (buildingMessage) lines.unshift(buildingMessage);
       messageEl.textContent = lines.join('\n');
@@ -1026,8 +1594,8 @@ async function boot(): Promise<void> {
     createButton.addEventListener('click', () => {
       if (!doc) return;
       const params = currentBuildingParams(rect);
-      const errors = validateBuilding(doc.toJSON(), params);
-      if (doc.id !== 'world') errors.unshift('Buildings can only be created while editing the world map.');
+      const errors = validateBuilding(buildingContext(), params);
+      if (doc.kind !== 'world') errors.unshift('Buildings can only be created while editing the world map.');
       if (errors.length > 0) {
         buildingMessage = 'Cannot create:';
         refreshMessage();
@@ -1232,19 +1800,20 @@ async function boot(): Promise<void> {
     return form;
   }
 
-  // --- chrome: zoom + save --------------------------------------------------------------------
+  // --- chrome: zoom + chunk toggle + save ---------------------------------------------------------
 
   for (const button of root.querySelectorAll<HTMLButtonElement>('[data-zoom]')) {
-    button.addEventListener('click', () => {
-      const index = ZOOM_STEPS.indexOf(cell);
-      const delta = Number(button.dataset['zoom'] ?? '0');
-      const next = ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, Math.max(0, index + delta))];
-      if (next !== undefined && next !== cell) setZoom(next);
-    });
+    button.addEventListener('click', () => stepZoom(Number(button.dataset['zoom'] ?? '0')));
   }
 
-  function downloadFallback(json: string, fileName: string = currentFile): void {
-    const blob = new Blob([json], { type: 'application/json' });
+  chunksButton.addEventListener('click', () => {
+    showChunks = !showChunks;
+    chunksButton.classList.toggle('on', showChunks);
+    redraw();
+  });
+
+  function downloadFallback(text: string, fileName: string): void {
+    const blob = new Blob([text], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -1253,41 +1822,74 @@ async function boot(): Promise<void> {
     URL.revokeObjectURL(url);
   }
 
-  async function post(file: string, json: string): Promise<boolean> {
+  async function send(url: string, method: 'POST' | 'DELETE', body?: string): Promise<boolean> {
     try {
-      const response = await fetch(`/__map?file=${file}`, { method: 'POST', body: json });
+      const response = await fetch(url, body === undefined ? { method } : { method, body });
       return response.ok;
     } catch {
       return false;
     }
   }
 
-  async function save(): Promise<void> {
-    if (!doc) return;
-    const json = JSON.stringify(doc.toJSON(), null, 2) + '\n';
-    if (await post(currentFile, json)) {
+  async function saveWorld(current: MapDocument): Promise<void> {
+    const plan: SavePlan = current.savePlan();
+    const metaChanged = plan.metaText !== lastMetaText;
+    if (plan.writes.length === 0 && plan.deletes.length === 0 && !metaChanged) {
+      saveButton.textContent = 'Saved (nothing changed)';
+      saveButton.classList.remove('unsaved');
       dirty = false;
-      saveButton.textContent = 'Saved';
-      await refreshSpaceList();
+      return;
+    }
+    let ok = true;
+    for (const w of plan.writes) ok = (await send(`/__world?chunk=${w.cx},${w.cy}`, 'POST', w.text)) && ok;
+    for (const d of plan.deletes) ok = (await send(`/__world?chunk=${d.cx},${d.cy}`, 'DELETE')) && ok;
+    if (metaChanged && plan.metaText !== null) ok = (await send('/__world?meta=1', 'POST', plan.metaText)) && ok;
+    if (ok) {
+      current.commitSave(plan);
+      if (plan.metaText !== null) lastMetaText = plan.metaText;
+      dirty = false;
+      minimapStale = true;
+      saveButton.textContent = `Saved (${plan.writes.length} written, ${plan.deletes.length} deleted)`;
+      saveButton.classList.remove('unsaved');
+      say(`Saved: ${plan.writes.length} chunk file${plan.writes.length === 1 ? '' : 's'} written, ${plan.deletes.length} deleted${metaChanged ? ', world.json updated' : ''}.`);
+      refreshSize();
+      redraw();
     } else {
       // No dev server (e.g. a static build) or a rejected write: download so work is never lost.
-      downloadFallback(json);
+      if (plan.metaText !== null) downloadFallback(plan.metaText, 'world.json');
+      for (const w of plan.writes) downloadFallback(w.text, `${w.cx}_${w.cy}.json`);
+      saveButton.textContent = 'Save failed — downloaded instead';
+    }
+  }
+
+  async function save(): Promise<void> {
+    if (!doc) return;
+    if (doc.kind === 'world') return saveWorld(doc);
+    const text = doc.flatText();
+    if (await send(`/__map?file=${currentFile}`, 'POST', text)) {
+      dirty = false;
+      saveButton.textContent = 'Saved';
+      saveButton.classList.remove('unsaved');
+      await refreshSpaceList();
+    } else {
+      downloadFallback(text, currentFile);
       saveButton.textContent = 'Save failed — downloaded instead';
     }
   }
   saveButton.addEventListener('click', () => void save());
 
-  // The dev server full-reloads this page whenever a map JSON changes (including our own save), so
-  // the open file is kept in the URL hash to land back on the same map afterwards.
+  // The dev server may full-reload this page when a map JSON changes (including our own save), so
+  // the open file is kept in the URL hash (and the view in sessionStorage) to land back where we were.
   await refreshSpaceList();
   const hashed = spaceEntries.find((e) => e.file === location.hash.slice(1));
   await loadFile(hashed?.file ?? currentFile);
+  renderFileOptions();
 }
 
 const LAYOUT = `
   <header>
     <strong>New Vegas RL — Map Editor</strong>
-    <select id="file"><option value="worldMap.json">World</option></select>
+    <select id="file"><option value="world">World</option></select>
     <span class="tools" id="mode-tools">
       <button data-mode="tile" class="on">Tiles</button>
       <button data-mode="height">Height</button>
@@ -1296,18 +1898,20 @@ const LAYOUT = `
       <button data-mode="transition">Transitions</button>
     </span>
     <span class="tools">
-      <button data-zoom="-1">&minus;</button>
+      <button data-zoom="-1" title="Zoom out (-, Ctrl+wheel)">&minus;</button>
       <span id="zoom">22px</span>
-      <button data-zoom="1">+</button>
+      <button data-zoom="1" title="Zoom in (+, Ctrl+wheel)">+</button>
+      <button id="chunks" class="on" title="Show chunk boundaries">Chunks</button>
     </span>
     <span class="grow"></span>
     <span id="status">&nbsp;</span>
+    <span id="note"></span>
     <button id="save">Save</button>
   </header>
   <div id="load-error"></div>
   <div id="body">
-    <aside id="palette"></aside>
-    <main><div id="canvas-wrap"><canvas id="map"></canvas></div></main>
+    <aside id="palette-col"><div id="palette"></div><div id="size"></div></aside>
+    <main id="viewport"><canvas id="map"></canvas><canvas id="minimap"></canvas></main>
     <aside id="inspector"></aside>
   </div>
 `;
@@ -1315,6 +1919,7 @@ const LAYOUT = `
 const STYLE = `
   body { margin: 0; background: ${PALETTE.uiBg}; color: ${PALETTE.uiDim};
          font: 13px ui-monospace, 'Cascadia Mono', 'DejaVu Sans Mono', Consolas, monospace; }
+  #editor { display: flex; flex-direction: column; height: 100vh; }
   header { display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
            padding: 8px 12px; background: #0c1409; border-bottom: 1px solid ${PALETTE.uiBorder}; }
   header strong { color: ${PALETTE.uiAmber}; }
@@ -1325,22 +1930,27 @@ const STYLE = `
   }
   button { cursor: pointer; }
   button.on { background: ${PALETTE.uiGreen}; border-color: ${PALETTE.uiGreen}; color: #06250f; }
+  button.unsaved { border-color: ${PALETTE.uiAmber}; color: ${PALETTE.uiAmber}; }
   button.danger { border-color: ${PALETTE.uiDanger}; color: ${PALETTE.uiDanger}; margin-top: 8px; }
-  .tools { display: flex; flex-wrap: wrap; gap: 4px; }
+  .tools { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
   .places { margin-top: 12px; display: flex; flex-direction: column; gap: 4px; }
   .place-row { display: flex; gap: 4px; align-items: center; }
   .place-row.on { outline: 2px solid ${PALETTE.uiAmber}; }
   .place-row input { flex: 1; min-width: 0; padding: 3px 6px; }
   .place-row button { padding: 2px 6px; margin: 0; }
   #status { color: ${PALETTE.uiDim}; min-width: 140px; }
+  #note { color: ${PALETTE.uiAmber}; max-width: 420px; }
   #load-error { padding: 6px 12px; }
   #load-error.bad { background: #3a1616; color: #ffb4b4; border-bottom: 1px solid ${PALETTE.uiBorder}; }
-  #body { display: flex; height: calc(100vh - 42px); box-sizing: border-box; }
-  #palette { width: 230px; padding: 10px; border-right: 1px solid ${PALETTE.uiBorder}; overflow-y: auto; }
-  #inspector { width: 240px; padding: 10px; border-left: 1px solid ${PALETTE.uiBorder}; overflow-y: auto; }
-  main { flex: 1; overflow: auto; display: flex; align-items: flex-start; justify-content: flex-start; }
-  #canvas-wrap { padding: 12px; }
-  canvas { display: block; cursor: crosshair; image-rendering: pixelated; }
+  #body { display: flex; flex: 1; min-height: 0; }
+  #palette-col { width: 230px; padding: 10px; border-right: 1px solid ${PALETTE.uiBorder}; overflow-y: auto; box-sizing: border-box; }
+  #size { margin-top: 16px; padding-top: 10px; border-top: 1px solid ${PALETTE.uiBorder}; display: flex; flex-direction: column; gap: 8px; }
+  #size button.danger { margin-top: 0; }
+  #inspector { width: 240px; padding: 10px; border-left: 1px solid ${PALETTE.uiBorder}; overflow-y: auto; box-sizing: border-box; }
+  main { flex: 1; min-width: 0; position: relative; overflow: hidden; }
+  canvas#map { position: absolute; inset: 0; cursor: crosshair; }
+  canvas#minimap { position: absolute; right: 12px; bottom: 12px; border: 1px solid ${PALETTE.uiAmber};
+                   background: #000; cursor: pointer; image-rendering: pixelated; opacity: 0.92; }
   .swatches { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 8px; }
   .swatch { width: 28px; height: 28px; padding: 0; font-size: 15px; }
   .swatch.on { outline: 2px solid ${PALETTE.uiAmber}; }

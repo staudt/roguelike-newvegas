@@ -4,33 +4,49 @@ import {
   MAX_ACTIONS_PER_TURN,
   NORMAL_SPEED,
   PEACEFUL_WANDER_CHANCE,
+  SIM_RADIUS,
 } from '../config/constants';
 import type { Creature } from '../entities/Creature';
 import { creatureAttacks } from '../engine/Combat';
 import type { EventBus, GameEvents } from '../engine/EventBus';
-import { getActiveSpace, worldToLocal, type GameState, type Space } from '../engine/GameState';
+import { getActiveSpace, type GameState } from '../engine/GameState';
 import { hasLineOfSight } from '../fov/LineOfSight';
 import { chebyshevDistance, DIRECTION_VECTORS, type Point } from '../utils/geometry';
 import { randomInt, type RNG } from '../utils/RNG';
 import { canStep } from '../world/GameMap';
-import { nextStepToward } from './Pathfinding';
+import { cellKey, nextStepToward } from './Pathfinding';
 
 const STEP_VECTORS = Object.values(DIRECTION_VECTORS);
 
+/** Cells (-> creature) occupied this tick, kept current as creatures move. */
+type Occupancy = Map<number, Creature>;
+
 /**
- * Runs every creature's turn for one world tick, NetHack-style: each banks its speed in movement
+ * Runs the creature turns for one world tick, NetHack-style: each banks its speed in movement
  * points and spends NORMAL_SPEED per action, so a fast creature takes several steps or strikes in
- * a single turn and a slow one acts only on some turns. Leftover energy carries over, which is
- * what makes speeds like 18 (one action, then two) or 8 (two actions every three turns) work.
+ * a single turn and a slow one acts only on some turns. Leftover energy carries over.
+ *
+ * Only creatures within SIM_RADIUS of the player act (the rest of the world is asleep and banks
+ * nothing), and "is this cell taken?" is a lookup in an occupancy index built once per tick.
  */
 export function runCreatureTurns(state: GameState, rng: RNG, events: EventBus<GameEvents>): void {
   const space = getActiveSpace(state);
-  const creatures: Creature[] = [...space.monsters, ...space.npcs];
+  const player = state.player;
 
-  for (const creature of creatures) {
-    // May have died or left the space earlier this tick.
-    if (!isPresent(space, creature)) continue;
+  const active: Creature[] = [];
+  const occupancy: Occupancy = new Map();
+  const nearby = (c: Creature, radius: number): boolean =>
+    Math.abs(c.x - player.x) <= radius && Math.abs(c.y - player.y) <= radius;
 
+  for (const list of [space.monsters, space.npcs] as Creature[][]) {
+    for (const c of list) {
+      if (!nearby(c, SIM_RADIUS + 2)) continue;
+      occupancy.set(cellKey(c.x, c.y), c);
+      if (nearby(c, SIM_RADIUS)) active.push(c);
+    }
+  }
+
+  for (const creature of active) {
     creature.energy += effectiveSpeed(creature);
     let actions = 0;
 
@@ -39,9 +55,9 @@ export function runCreatureTurns(state: GameState, rng: RNG, events: EventBus<Ga
       actions++;
 
       if (creature.hostile) {
-        actAsHostile(state, creature, rng, events);
+        actAsHostile(state, creature, rng, events, occupancy);
       } else if (creature.kind === 'monster') {
-        wander(state, creature, rng);
+        wander(state, creature, rng, occupancy);
       }
     }
 
@@ -50,8 +66,16 @@ export function runCreatureTurns(state: GameState, rng: RNG, events: EventBus<Ga
   }
 }
 
-function isPresent(space: Space, creature: Creature): boolean {
-  return space.monsters.some((m) => m === creature) || space.npcs.some((n) => n === creature);
+function moveTo(occupancy: Occupancy, creature: Creature, x: number, y: number): void {
+  occupancy.delete(cellKey(creature.x, creature.y));
+  creature.x = x;
+  creature.y = y;
+  occupancy.set(cellKey(x, y), creature);
+}
+
+/** Cells creatures may not path into: anyone's feet. (Closed doors already fail `canStep`.) */
+function isOccupied(state: GameState, occupancy: Occupancy, x: number, y: number): boolean {
+  return (state.player.x === x && state.player.y === y) || occupancy.has(cellKey(x, y));
 }
 
 function actAsHostile(
@@ -59,6 +83,7 @@ function actAsHostile(
   creature: Creature,
   rng: RNG,
   events: EventBus<GameEvents>,
+  occupancy: Occupancy,
 ): void {
   const space = getActiveSpace(state);
   const here: Point = creature;
@@ -66,9 +91,7 @@ function actAsHostile(
 
   if (!creature.alerted) {
     if (distance > creature.awareness) return;
-    const from = worldToLocal(space, here);
-    const to = worldToLocal(space, state.player);
-    if (!hasLineOfSight(space.grid, from, to)) return;
+    if (!hasLineOfSight(space.grid, here, state.player)) return;
     creature.alerted = true;
   } else if (distance > creature.awareness * LOSE_TRACK_FACTOR) {
     creature.alerted = false;
@@ -80,40 +103,22 @@ function actAsHostile(
     return;
   }
 
-  const step = nextStepToward(
-    space.grid,
-    worldToLocal(space, here),
-    worldToLocal(space, state.player),
-    (lx, ly) => isOccupied(state, lx, ly),
+  const step = nextStepToward(space.grid, here, state.player, (x, y) =>
+    isOccupied(state, occupancy, x, y),
   );
   if (!step) return;
 
-  creature.x = step.x + space.worldOrigin.x;
-  creature.y = step.y + space.worldOrigin.y;
+  moveTo(occupancy, creature, step.x, step.y);
 }
 
 /** Peaceful creatures (a brahmin) drift about now and then; they never leave their space. */
-function wander(state: GameState, creature: Creature, rng: RNG): void {
+function wander(state: GameState, creature: Creature, rng: RNG, occupancy: Occupancy): void {
   if (randomInt(rng, 1, 100) > PEACEFUL_WANDER_CHANCE) return;
 
   const space = getActiveSpace(state);
   const v = STEP_VECTORS[randomInt(rng, 0, STEP_VECTORS.length - 1)]!;
-  const from = worldToLocal(space, creature);
-  const to = { x: from.x + v.x, y: from.y + v.y };
+  const to = { x: creature.x + v.x, y: creature.y + v.y };
 
-  if (!canStep(space.grid, from, to) || isOccupied(state, to.x, to.y)) return;
-  creature.x = to.x + space.worldOrigin.x;
-  creature.y = to.y + space.worldOrigin.y;
-}
-
-/** Cells creatures may not path into: anyone's feet. (Closed doors already fail `canStep`.) */
-function isOccupied(state: GameState, localX: number, localY: number): boolean {
-  const space = getActiveSpace(state);
-  const wx = localX + space.worldOrigin.x;
-  const wy = localY + space.worldOrigin.y;
-  if (state.player.x === wx && state.player.y === wy) return true;
-  return (
-    space.monsters.some((m) => m.x === wx && m.y === wy) ||
-    space.npcs.some((n) => n.x === wx && n.y === wy)
-  );
+  if (!canStep(space.grid, creature, to) || isOccupied(state, occupancy, to.x, to.y)) return;
+  moveTo(occupancy, creature, to.x, to.y);
 }

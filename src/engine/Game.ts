@@ -7,7 +7,10 @@ import { InputManager } from '../input/InputManager';
 import { createItem } from '../items/Item';
 import { itemDef } from '../items/ItemData';
 import type { Direction } from '../utils/geometry';
-import { loadSpace, type SpaceJSON } from '../world/MapLoader';
+import type { ChunkJSON } from '../world/ChunkCodec';
+import { ChunkStreamer, parseChunkPath, type ChunkCoord } from '../world/ChunkStreamer';
+import type { ChunkedMap } from '../world/ChunkedMap';
+import { isWorldMeta, loadSpace, loadWorld, type SpaceJSON, type WorldMetaJSON } from '../world/MapLoader';
 import { Menu, type MenuAnchor, type MenuOption, type PanelLine } from '../ui/Menu';
 import { MessageLog } from '../ui/MessageLog';
 import { Renderer } from '../ui/Renderer';
@@ -56,28 +59,51 @@ const MODE_NAMES: Record<Mode['kind'], ModeName> = {
 const WORLD_SPACE_ID = 'world';
 
 /**
- * Every .json in src/world/goodsprings is a space, found at build time — adding a map file (the
- * editor's "New building" helper does) needs no code change here.
+ * Every .json directly in src/world/goodsprings is found at build time — adding a map file (the
+ * editor's "New building" helper does) needs no code change here. The one with `kind: 'chunked'`
+ * is the world's metadata; any others are flat spaces (a building's extra floor).
  */
-const SPACE_DATA: SpaceJSON[] = collectSpaces(
-  import.meta.glob<SpaceJSON>('../world/goodsprings/*.json', { eager: true, import: 'default' }),
+const MAP_DATA = collectMaps(
+  import.meta.glob<SpaceJSON | WorldMetaJSON>('../world/goodsprings/*.json', {
+    eager: true,
+    import: 'default',
+  }),
 );
 
-function collectSpaces(files: Record<string, SpaceJSON>): SpaceJSON[] {
+/** The world's cells live in chunks/<cx>_<cy>.json, one lazy import each (a chunk per request). */
+const CHUNK_LOADERS = import.meta.glob<ChunkJSON>('../world/goodsprings/chunks/*.json', {
+  import: 'default',
+});
+
+const CHUNK_LOADERS_BY_COORD = new Map<string, () => Promise<ChunkJSON>>();
+const CHUNK_COORDS: ChunkCoord[] = [];
+for (const [path, loader] of Object.entries(CHUNK_LOADERS)) {
+  const coord = parseChunkPath(path);
+  if (!coord) continue;
+  CHUNK_LOADERS_BY_COORD.set(`${coord.cx},${coord.cy}`, loader);
+  CHUNK_COORDS.push(coord);
+}
+
+function collectMaps(files: Record<string, SpaceJSON | WorldMetaJSON>): {
+  world: WorldMetaJSON;
+  flat: SpaceJSON[];
+} {
   const byId = new Map<string, string>();
-  const spaces: SpaceJSON[] = [];
+  let world: WorldMetaJSON | undefined;
+  const flat: SpaceJSON[] = [];
   for (const [path, data] of Object.entries(files).sort(([a], [b]) => a.localeCompare(b))) {
     const earlier = byId.get(data.id);
     if (earlier !== undefined) {
       throw new Error(`Duplicate space id "${data.id}" in ${path} and ${earlier}`);
     }
     byId.set(data.id, path);
-    spaces.push(data);
+    if (isWorldMeta(data)) world = data;
+    else flat.push(data);
   }
-  if (!byId.has(WORLD_SPACE_ID)) {
-    throw new Error(`No space with id "${WORLD_SPACE_ID}" found in src/world/goodsprings/*.json`);
+  if (!world || world.id !== WORLD_SPACE_ID) {
+    throw new Error(`No chunked world with id "${WORLD_SPACE_ID}" found in src/world/goodsprings/*.json`);
   }
-  return spaces;
+  return { world, flat };
 }
 
 const HELP_LINES: PanelLine[] = [
@@ -131,6 +157,8 @@ export class Game {
   private state: GameState;
   private mode: Mode = { kind: 'normal' };
   private debugMonsterCounter = 0;
+  private streamer!: ChunkStreamer;
+  private streamedChunk: ChunkCoord | null = null;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -157,8 +185,10 @@ export class Game {
     });
   }
 
-  start(): void {
+  /** Loads the chunks around the player first, so the very first frame already has ground. */
+  async start(): Promise<void> {
     this.renderer.resize();
+    await this.loadInitialChunks();
     recomputeVisibility(this.state);
     this.render();
     this.exposeDebugBridge();
@@ -167,13 +197,20 @@ export class Game {
   /** Fresh world from the map JSON. Always rebuilt from scratch: permadeath, no continue. */
   private buildState(): GameState {
     const spaces: Record<string, Space> = {};
-    for (const data of SPACE_DATA) {
+    const world = loadWorld(MAP_DATA.world, []);
+    spaces[world.id] = world;
+    for (const data of MAP_DATA.flat) {
       const space = loadSpace(data);
       spaces[space.id] = space;
     }
-    const worldData = SPACE_DATA.find((d) => d.id === WORLD_SPACE_ID)!;
-    const start = worldData.playerStart ?? { x: 0, y: 0 };
-    const state = createGameState(createPlayer(start.x, start.y), spaces, getWorldId(worldData));
+    this.streamer = new ChunkStreamer(world.grid as ChunkedMap, CHUNK_COORDS, (cx, cy) => {
+      const load = CHUNK_LOADERS_BY_COORD.get(`${cx},${cy}`);
+      if (!load) return Promise.reject(new Error(`No chunk file for (${cx},${cy})`));
+      return load();
+    });
+    this.streamedChunk = null;
+    const start = MAP_DATA.world.playerStart ?? { x: 0, y: 0 };
+    const state = createGameState(createPlayer(start.x, start.y), spaces, world.id);
     addMessage(state, `Welcome to ${spaces[state.activeSpaceId]!.name}.`);
     return state;
   }
@@ -188,13 +225,42 @@ export class Game {
     ];
   }
 
-  private restart(): void {
+  private async loadInitialChunks(): Promise<void> {
+    await this.streamer.ensureAround(this.state.player);
+    this.streamedChunk = ChunkStreamer.chunkOf(this.state.player);
+  }
+
+  private async restart(): Promise<void> {
     this.menu.hide();
     this.state = this.buildState();
     this.bindEvents();
     this.mode = { kind: 'normal' };
+    await this.loadInitialChunks();
     recomputeVisibility(this.state);
     this.render();
+  }
+
+  /**
+   * When the player crosses into another chunk, fire off loading the ring around them and then
+   * unload what is now far away. Fire-and-forget: the 3x3 ring always covers the sight radius, so
+   * the frame drawn now is complete, and the next one picks up whatever arrives.
+   */
+  private streamChunks(): void {
+    const here = ChunkStreamer.chunkOf(this.state.player);
+    const last = this.streamedChunk;
+    if (last && last.cx === here.cx && last.cy === here.cy) return;
+    this.streamedChunk = here;
+    const streamer = this.streamer;
+    const center = { x: this.state.player.x, y: this.state.player.y };
+    void streamer
+      .ensureAround(center)
+      .then(() => {
+        streamer.unloadFar(center);
+        if (streamer !== this.streamer) return;
+        recomputeVisibility(this.state);
+        this.render();
+      })
+      .catch((err) => console.error('Chunk streaming failed', err));
   }
 
   // ---- input modes -------------------------------------------------------------------------
@@ -259,7 +325,7 @@ export class Game {
         break;
       case 'game-over':
         if (key === 'Enter') {
-          this.restart();
+          void this.restart();
           return;
         }
         break;
@@ -469,6 +535,7 @@ export class Game {
     // The engine flags death before the event handler necessarily ran (e.g. via the bridge).
     if (this.state.gameOver && this.mode.kind !== 'game-over') this.showDeathScreen();
     this.renderer.render(this.state);
+    this.streamChunks();
     this.messageLog.render(this.state.messageLog);
     this.statusBar.render(this.state, this.promptText());
     this.menu.reposition();
@@ -533,12 +600,9 @@ export class Game {
         this.state.player.speed = n;
       },
       press: (key: string) => this.input.press(key),
+      chunkStats: () => this.streamer.stats(),
     };
 
     (window as unknown as { __game: typeof bridge }).__game = bridge;
   }
-}
-
-function getWorldId(data: SpaceJSON): string {
-  return data.id;
 }

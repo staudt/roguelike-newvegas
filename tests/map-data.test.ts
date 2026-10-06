@@ -5,8 +5,7 @@ import { createGameState, placeAt } from '../src/engine/GameState';
 import { tryMovePlayer } from '../src/engine/TurnManager';
 import { DIRECTION_VECTORS, addPoints, rectContains, type Point, type Rect } from '../src/utils/geometry';
 import { canStep, getTileId, inBounds, isWalkable, setTileId, type MapGrid } from '../src/world/GameMap';
-import { loadSpace, type SpaceJSON } from '../src/world/MapLoader';
-import worldMapJson from '../src/world/goodsprings/worldMap.json';
+import { loadRealWorld, readWorldMeta } from './helpers/world';
 
 /** Same real-rule (`canStep`) flood fill as map-connectivity.test.ts, over all 8 directions. */
 function reachableFrom(grid: MapGrid, start: Point): Set<string> {
@@ -27,13 +26,13 @@ function reachableFrom(grid: MapGrid, start: Point): Set<string> {
   return visited;
 }
 
-/** A copy of the grid with every closed door opened — the player opens doors by bumping them. */
-function withDoorsOpened(grid: MapGrid): MapGrid {
-  const copy: MapGrid = { ...grid, tiles: [...grid.tiles], heights: new Uint8Array(grid.heights) };
-  for (let y = 0; y < copy.height; y++) {
-    for (let x = 0; x < copy.width; x++) if (getTileId(copy, x, y) === 'door') setTileId(copy, x, y, 'openDoor');
+/** Opens every closed door in place (the player opens doors by bumping them) and returns the map. */
+function openAllDoors(grid: MapGrid): MapGrid {
+  const b = grid.bounds();
+  for (let y = b.y; y < b.y + b.height; y++) {
+    for (let x = b.x; x < b.x + b.width; x++) if (getTileId(grid, x, y) === 'door') setTileId(grid, x, y, 'openDoor');
   }
-  return copy;
+  return grid;
 }
 
 const SALOON: Rect = { x: 11, y: 10, width: 6, height: 5 };
@@ -50,8 +49,8 @@ function ringCells(r: Rect): Point[] {
   return out;
 }
 
-describe('worldMap.json places', () => {
-  const space = loadSpace(worldMapJson as SpaceJSON);
+describe('world.json + chunks places', () => {
+  const space = loadRealWorld();
 
   it("names exactly the saloon and the doctor's house, with the expected rects", () => {
     expect(space.places).toEqual([
@@ -113,7 +112,7 @@ describe('worldMap.json places', () => {
   });
 
   it('walking in from the street to Doc: open the door, step in, bump Doc for his menu, walk back out', () => {
-    const world = loadSpace(worldMapJson as SpaceJSON);
+    const world = loadRealWorld();
     world.monsters = []; // keep the walk deterministic: no radroach wandering through the open door
     const state = createGameState(createPlayer(21, 6), { world }, 'world');
     const events = new EventBus<GameEvents>();
@@ -140,10 +139,10 @@ describe('worldMap.json places', () => {
   });
 });
 
-describe('worldMap.json monsters', () => {
-  const space = loadSpace(worldMapJson as SpaceJSON);
+describe('world.json + chunks monsters', () => {
+  const space = loadRealWorld();
   // Doors open when bumped, so reachability is judged with them swung open.
-  const reachable = reachableFrom(withDoorsOpened(space.grid), worldMapJson.playerStart);
+  const reachable = reachableFrom(openAllDoors(loadRealWorld().grid), readWorldMeta().playerStart!);
 
   it('places the expected wildlife', () => {
     const counts: Record<string, number> = {};
@@ -167,7 +166,7 @@ describe('worldMap.json monsters', () => {
       expect(cells.has(key)).toBe(false);
       cells.add(key);
     }
-    const start = worldMapJson.playerStart;
+    const start = readWorldMeta().playerStart!;
     expect(cells.has(`${start.x},${start.y}`)).toBe(false);
   });
 

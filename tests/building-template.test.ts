@@ -8,34 +8,32 @@ import {
   defaultDoorOffset,
   outsideDoorWalkable,
   validateBuilding,
+  type BuildingContext,
   type BuildingPatch,
   type BuildingRect,
   type DoorSide,
 } from '../src/world/buildingTemplate';
-import { getTileId } from '../src/world/GameMap';
-import { loadSpace, type SpaceJSON } from '../src/world/MapLoader';
+import { ChunkedMap, createChunk } from '../src/world/ChunkedMap';
+import { loadWorld } from '../src/world/MapLoader';
+import { GROUND_TILE, tileIdOf, tileIndex } from '../src/world/Tile';
+import type { TileMap } from '../src/world/TileMap';
 
 const RECT: BuildingRect = { x: 6, y: 5, w: 7, h: 6 };
 
-function emptyWorld(): SpaceJSON {
-  return {
-    id: 'world',
-    name: 'World',
-    indoor: false,
-    worldOrigin: { x: 0, y: 0 },
-    width: 20,
-    height: 16,
-    tiles: new Array<string>(20 * 16).fill('ground'),
-    heights: new Array<number>(20 * 16).fill(0),
-    npcs: [],
-    transitions: [],
-  };
+/** The ground chunk (0,0) of 64x64 open ground, wrapped as the context validateBuilding wants. */
+function emptyWorld(extra: Partial<BuildingContext> = {}): BuildingContext {
+  const map = new ChunkedMap();
+  map.addChunk(createChunk(0, 0, GROUND_TILE));
+  return { map, npcs: [], monsters: [], places: [], ...extra };
 }
 
-function applyPatch(world: SpaceJSON, patch: BuildingPatch): SpaceJSON {
-  const next: SpaceJSON = { ...world, tiles: [...world.tiles], places: [...(world.places ?? []), patch.place] };
-  for (const t of patch.tiles) next.tiles[t.y * next.width + t.x] = t.id;
-  return next;
+function applyPatch(world: BuildingContext, patch: BuildingPatch): BuildingContext {
+  for (const t of patch.tiles) world.map.setTile(t.x, t.y, tileIndex(t.id));
+  return { ...world, places: [...world.places, patch.place] };
+}
+
+function setTile(map: TileMap, x: number, y: number, id: string): void {
+  map.setTile(x, y, tileIndex(id));
 }
 
 const SIDES: Array<{
@@ -99,12 +97,15 @@ describe('end-to-end walk through a generated building (real engine)', () => {
       const offset = defaultDoorOffset(RECT, c.side);
       const patch = buildBuilding({ name: 'Shop', rect: RECT, doorSide: c.side, doorOffset: offset });
       const world = applyPatch(emptyWorld(), patch);
-      expect(outsideDoorWalkable(world, RECT, c.side, offset)).toBe(true);
+      expect(outsideDoorWalkable(world.map, RECT, c.side, offset)).toBe(true);
 
-      const state = createGameState(createPlayer(c.outside.x, c.outside.y), { world: loadSpace(world) }, 'world');
+      const space = loadWorld({ kind: 'chunked', id: 'world', name: 'World', npcs: [], transitions: [] }, []);
+      for (const chunk of (world.map as ChunkedMap).chunkList()) (space.grid as ChunkedMap).addChunk(chunk);
+      space.places.push(...world.places.map((p) => ({ name: p.name, rect: { ...p.rect } })));
+      const state = createGameState(createPlayer(c.outside.x, c.outside.y), { world: space }, 'world');
       const events = new EventBus<GameEvents>();
       const grid = getActiveSpace(state).grid;
-      const tileAtDoor = (): string | undefined => getTileId(grid, c.door.x, c.door.y);
+      const tileAtDoor = (): string => tileIdOf(grid.getTile(c.door.x, c.door.y));
 
       // Bump: opens the door, stays put, costs a turn.
       expect(tileAtDoor()).toBe('door');
@@ -123,7 +124,7 @@ describe('end-to-end walk through a generated building (real engine)', () => {
       expect(tryMovePlayer(state, c.inward, events)).toBe(true);
       const step = STEP[c.inward];
       expect(state.player).toMatchObject({ x: c.door.x + step.x, y: c.door.y + step.y });
-      expect(getTileId(grid, state.player.x, state.player.y)).toBe('floor');
+      expect(tileIdOf(grid.getTile(state.player.x, state.player.y))).toBe('floor');
       expect(state.messageLog).toHaveLength(2);
       expect(state.activeSpaceId).toBe('world');
 
@@ -143,7 +144,7 @@ describe('validateBuilding', () => {
   it('accepts a clean placement, including over ground and rock', () => {
     expect(validateBuilding(emptyWorld(), base)).toEqual([]);
     const rocky = emptyWorld();
-    rocky.tiles[7 * rocky.width + 8] = 'rock';
+    setTile(rocky.map, 8, 7, 'rock');
     expect(validateBuilding(rocky, base)).toEqual([]);
   });
 
@@ -151,30 +152,29 @@ describe('validateBuilding', () => {
     expect(validateBuilding(emptyWorld(), { ...base, name: '  ' })).toEqual(['Name is required.']);
   });
 
-  it('refuses border coverage, corner doors and too-small rects', () => {
-    expect(validateBuilding(emptyWorld(), { ...base, rect: { x: 0, y: 5, w: 6, h: 5 } })).toEqual([
-      'Building must lie inside the map and not cover its border.',
-    ]);
-    expect(validateBuilding(emptyWorld(), { ...base, rect: { x: 15, y: 5, w: 5, h: 5 } })).not.toEqual([]);
-    expect(validateBuilding(emptyWorld(), { ...base, rect: { x: 5, y: 5, w: 5, h: 11 } })).not.toEqual([]);
+  it('refuses corner doors and too-small rects', () => {
     expect(validateBuilding(emptyWorld(), { ...base, doorOffset: 0 })[0]).toMatch(/corner/);
     expect(validateBuilding(emptyWorld(), { ...base, doorOffset: RECT.w - 1 })[0]).toMatch(/corner/);
     expect(validateBuilding(emptyWorld(), { ...base, rect: { x: 3, y: 3, w: 4, h: 4 } })[0]).toMatch(/Too small/);
     expect(validateBuilding(emptyWorld(), { ...base, rect: { x: 3, y: 3, w: 5, h: 3 } })[0]).toMatch(/Too small/);
   });
 
+  it('lets you build over void, past the chunk edge and at negative coordinates', () => {
+    const empty = emptyWorld();
+    expect(validateBuilding(empty, { ...base, rect: { x: 60, y: 5, w: 8, h: 6 } })).toEqual([]);
+    expect(validateBuilding(empty, { ...base, rect: { x: -20, y: -10, w: 8, h: 6 }, doorOffset: 3 })).toEqual([]);
+    expect(validateBuilding({ ...empty, map: new ChunkedMap() }, base)).toEqual([]);
+  });
+
   it('refuses overlaps with NPCs, monsters, the player start, doors and other places', () => {
-    const npc = { ...emptyWorld(), npcs: [{ id: 'n', name: 'N', x: 8, y: 7, dialogue: ['hi'] }] };
-    const monster = { ...emptyWorld(), monsters: [{ defId: 'gecko', x: 8, y: 7 }] };
-    const start = { ...emptyWorld(), playerStart: { x: 8, y: 7 } };
+    const npc = emptyWorld({ npcs: [{ name: 'N', x: 8, y: 7 }] });
+    const monster = emptyWorld({ monsters: [{ defId: 'gecko', x: 8, y: 7 }] });
+    const start = emptyWorld({ playerStart: { x: 8, y: 7 } });
     const door = emptyWorld();
-    door.tiles[7 * door.width + 8] = 'door';
+    setTile(door.map, 8, 7, 'door');
     const open = emptyWorld();
-    open.tiles[7 * open.width + 8] = 'openDoor';
-    const place = {
-      ...emptyWorld(),
-      places: [{ name: 'Neighbour', rect: { x: 12, y: 8, width: 5, height: 4 } }],
-    };
+    setTile(open.map, 8, 7, 'openDoor');
+    const place = emptyWorld({ places: [{ name: 'Neighbour', rect: { x: 12, y: 8, width: 5, height: 4 } }] });
     const expected = [/NPC/, /gecko/, /player start/, /door/, /door/, /Neighbour/];
     [npc, monster, start, door, open, place].forEach((w, i) => {
       const errors = validateBuilding(w, base);
@@ -184,13 +184,20 @@ describe('validateBuilding', () => {
   });
 
   it('allows a building right next to another place (no overlap)', () => {
-    const w = { ...emptyWorld(), places: [{ name: 'Next', rect: { x: 13, y: 5, width: 5, height: 4 } }] };
+    const w = emptyWorld({ places: [{ name: 'Next', rect: { x: 13, y: 5, width: 5, height: 4 } }] });
     expect(validateBuilding(w, base)).toEqual([]);
   });
 
   it('warns (via outsideDoorWalkable) when the cell outside the door is rock', () => {
     const world = emptyWorld();
-    world.tiles[11 * world.width + 9] = 'rock';
-    expect(outsideDoorWalkable(world, RECT, 'S', 3)).toBe(false);
+    setTile(world.map, 9, 11, 'rock');
+    expect(outsideDoorWalkable(world.map, RECT, 'S', 3)).toBe(false);
+  });
+
+  it('warns when the cell outside the door is void', () => {
+    const world = emptyWorld();
+    setTile(world.map, 9, 11, 'void');
+    expect(outsideDoorWalkable(world.map, RECT, 'S', 3)).toBe(false);
+    expect(outsideDoorWalkable(new ChunkedMap(), RECT, 'S', 3)).toBe(false);
   });
 });

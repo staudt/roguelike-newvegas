@@ -1,3 +1,4 @@
+import { VisibleSet } from '../src/fov/VisibleSet';
 import { describe, expect, it } from 'vitest';
 import { BALLOON_TURNS } from '../src/config/constants';
 import { createNpc } from '../src/entities/Npc';
@@ -6,8 +7,7 @@ import { advanceTurn, tryMovePlayer } from '../src/engine/TurnManager';
 import { EventBus, type GameEvents } from '../src/engine/EventBus';
 import { createGameState, type GameState, type Space } from '../src/engine/GameState';
 import { createEmptyGrid, getTileId, setTileId } from '../src/world/GameMap';
-import { loadSpace, type SpaceJSON } from '../src/world/MapLoader';
-import worldMapJson from '../src/world/goodsprings/worldMap.json';
+import { loadRealWorld } from './helpers/world';
 
 /**
  * A tiny synthetic 5x5 flat space: player starts center (2,2), an NPC sits just north at (2,1),
@@ -24,14 +24,12 @@ function buildSyntheticState(): { state: GameState; events: EventBus<GameEvents>
     id: 'test',
     name: 'Test Space',
     indoor: false,
-    worldOrigin: { x: 0, y: 0 },
     grid,
     npcs: [npc],
     monsters: [],
     transitions: [],
     places: [],
-    visible: new Uint8Array(25),
-    explored: new Uint8Array(25),
+    visible: VisibleSet.empty(),
   };
 
   const player = createPlayer(2, 2);
@@ -144,7 +142,7 @@ describe('tryMovePlayer / advanceTurn — bump and turn-cost rules', () => {
 
 describe('tryMovePlayer — the Prospector Saloon on the real merged map', () => {
   function buildWorldState(): { state: GameState; events: EventBus<GameEvents> } {
-    const world = loadSpace(worldMapJson as SpaceJSON);
+    const world = loadRealWorld();
     world.monsters = []; // deterministic: wildlife is not under test here
     // Two tiles east of the saloon's east door at (16,12), on open street, facing west.
     const state = createGameState(createPlayer(18, 12), { world }, 'world');
@@ -225,14 +223,12 @@ describe('tryMovePlayer — transitions between spaces (synthetic two-space fixt
       id,
       name: id,
       indoor: false,
-      worldOrigin: { x: 0, y: 0 },
       grid: createEmptyGrid(6, 1, 'ground'),
       npcs: [],
       monsters: [],
       transitions,
       places: [],
-      visible: new Uint8Array(6),
-      explored: new Uint8Array(6),
+      visible: VisibleSet.empty(),
     });
     const a = mk('a', [{ x: 3, y: 0, toSpace: 'b' }]);
     const b = mk('b', [{ x: 2, y: 0, toSpace: 'a' }]);

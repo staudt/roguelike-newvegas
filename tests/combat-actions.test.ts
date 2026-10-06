@@ -14,8 +14,7 @@ import {
   wieldItem,
 } from '../src/engine/TurnManager';
 import type { RNG } from '../src/utils/RNG';
-import { loadSpace, type SpaceJSON } from '../src/world/MapLoader';
-import worldMapJson from '../src/world/goodsprings/worldMap.json';
+import { loadRealWorld } from './helpers/world';
 import { buildArena, scriptedRNG } from './helpers/fixtures';
 
 /** Every roll is a natural 100: every attack misses. */
@@ -169,7 +168,7 @@ describe('fightDirection', () => {
 
 describe('Doc Mitchell (real data): menu, heal, talk', () => {
   function docState() {
-    const space = loadSpace(worldMapJson as SpaceJSON);
+    const space = loadRealWorld();
     space.monsters = []; // deterministic: wildlife is not under test here
     const player = createPlayer(25, 6); // directly west of Doc at (26,6)
     const state = createGameState(player, { [space.id]: space }, space.id);

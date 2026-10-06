@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DIRECTION_VECTORS, addPoints, rectContains, type Point } from '../src/utils/geometry';
-import { canStep, createEmptyGrid, inBounds, isWalkable, setHeight, setTileId, type MapGrid } from '../src/world/GameMap';
-import { loadSpace, type SpaceJSON } from '../src/world/MapLoader';
-import worldMapJson from '../src/world/goodsprings/worldMap.json';
+import { canStep, createEmptyGrid, getTileId, inBounds, isWalkable, setHeight, setTileId, type MapGrid } from '../src/world/GameMap';
+import { loadRealWorld, readWorldMeta } from './helpers/world';
 
 /**
  * Flood-fills `grid` from `start` using the REAL height-step rule (`canStep`), not raw tile
@@ -30,21 +29,19 @@ function reachableFrom(grid: MapGrid, start: Point): Set<string> {
   return visited;
 }
 
-/** A copy of `grid` with every closed door swung open — the player opens doors by bumping them. */
-function withDoorsOpened(grid: MapGrid): MapGrid {
-  const copy: MapGrid = { ...grid, tiles: [...grid.tiles], heights: new Uint8Array(grid.heights) };
-  for (let y = 0; y < copy.height; y++) {
-    for (let x = 0; x < copy.width; x++) {
-      if (copy.tiles[y * copy.width + x] === 'door') setTileId(copy, x, y, 'openDoor');
-    }
+/** Opens every closed door in place (the player opens doors by bumping them) and returns the map. */
+function openAllDoors(grid: MapGrid): MapGrid {
+  const b = grid.bounds();
+  for (let y = b.y; y < b.y + b.height; y++) {
+    for (let x = b.x; x < b.x + b.width; x++) if (getTileId(grid, x, y) === 'door') setTileId(grid, x, y, 'openDoor');
   }
-  return copy;
+  return grid;
 }
 
-describe('worldMap.json connectivity (doors open when bumped)', () => {
-  const space = loadSpace(worldMapJson as SpaceJSON);
-  const start = worldMapJson.playerStart;
-  const opened = withDoorsOpened(space.grid);
+describe('world.json + chunks connectivity (doors open when bumped)', () => {
+  const space = loadRealWorld();
+  const start = readWorldMeta().playerStart!;
+  const opened = openAllDoors(loadRealWorld().grid);
   const reachable = reachableFrom(opened, start);
   const closedReach = reachableFrom(space.grid, start);
 
@@ -103,8 +100,11 @@ describe('worldMap.json connectivity (doors open when bumped)', () => {
   });
 
   it('the only way into each building is its door: sealing the door cell with a wall cuts the interior off', () => {
-    const sealed = withDoorsOpened(space.grid);
-    for (let i = 0; i < sealed.tiles.length; i++) if (sealed.tiles[i] === 'openDoor') sealed.tiles[i] = 'wall';
+    const sealed = openAllDoors(loadRealWorld().grid);
+    const b = sealed.bounds();
+    for (let y = b.y; y < b.y + b.height; y++) {
+      for (let x = b.x; x < b.x + b.width; x++) if (getTileId(sealed, x, y) === 'openDoor') setTileId(sealed, x, y, 'wall');
+    }
     const r = reachableFrom(sealed, start);
     const trudy = space.npcs.find((n) => n.id === 'trudy')!;
     const doc = space.npcs.find((n) => n.id === 'doc-mitchell')!;
@@ -112,10 +112,11 @@ describe('worldMap.json connectivity (doors open when bumped)', () => {
     expect(r.has(`${doc.x},${doc.y}`)).toBe(false);
   });
 
-  it('does not consider every tile trivially reachable (sanity: rock border is excluded)', () => {
+  it('does not consider every tile trivially reachable (sanity: the void beyond the map is excluded)', () => {
     // Guards against a vacuous flood fill (e.g. one that ignores canStep entirely): the rock
     // border tiles are hard barriers and must never show up as reachable.
-    expect(reachable.has('0,0')).toBe(false);
+    expect(reachable.has('-1,-1')).toBe(false);
+    expect(reachable.has('64,64')).toBe(false);
   });
 });
 

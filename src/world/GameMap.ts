@@ -1,68 +1,46 @@
 import { MAX_STEP_HEIGHT_DELTA } from '../config/constants';
 import { MAX_GROUND_HEIGHT } from '../config/palette';
 import type { Point } from '../utils/geometry';
-import { tileDef } from './Tile';
+import { createEmptyGrid } from './FlatMap';
+import { GROUND_TILE, tileIdOf, tileIndex, tileOpaque, tileWalkable } from './Tile';
+import type { TileMap } from './TileMap';
 
 /**
- * The map grid for one space (the outdoor world, or one building interior), in that space's own
- * local coordinates. Plain POJO + typed arrays, no behavior — every function below is pure and
- * takes the grid as a parameter, which is what keeps this testable without a DOM or a Game.
+ * Helpers over a TileMap in WORLD coordinates (which may be negative), keeping the string tile-id
+ * API the game and tests use. Hot paths (line of sight, pathfinding) use the per-index lookups
+ * instead of string ids. Cells that don't exist are void: unwalkable and opaque, the hard stop
+ * where the map ends.
  */
-export interface MapGrid {
-  width: number;
-  height: number;
-  /** Row-major tile ids, length width*height. */
-  tiles: string[];
-  /** Row-major terrain height 0..MAX_GROUND_HEIGHT, meaningful only where the tile is 'ground'. */
-  heights: Uint8Array;
-}
-
-export function createEmptyGrid(width: number, height: number, fillTileId = 'rock'): MapGrid {
-  return {
-    width,
-    height,
-    tiles: new Array(width * height).fill(fillTileId),
-    heights: new Uint8Array(width * height),
-  };
-}
+export type MapGrid = TileMap;
+export { createEmptyGrid };
 
 export function inBounds(map: MapGrid, x: number, y: number): boolean {
-  return x >= 0 && y >= 0 && x < map.width && y < map.height;
+  return map.has(x, y);
 }
 
-function index(map: MapGrid, x: number, y: number): number {
-  return y * map.width + x;
-}
-
-/** Out-of-bounds reads as impassable rock, not floor — nothing should ever walk off the edge. */
+/** Cells outside the map read as 'void', never as walkable ground. */
 export function getTileId(map: MapGrid, x: number, y: number): string {
-  if (!inBounds(map, x, y)) return 'rock';
-  return map.tiles[index(map, x, y)]!;
+  return tileIdOf(map.getTile(x, y));
 }
 
 export function setTileId(map: MapGrid, x: number, y: number, id: string): void {
-  if (!inBounds(map, x, y)) return;
-  map.tiles[index(map, x, y)] = id;
+  map.setTile(x, y, tileIndex(id));
 }
 
 export function getHeight(map: MapGrid, x: number, y: number): number {
-  if (!inBounds(map, x, y)) return 0;
-  return map.heights[index(map, x, y)] ?? 0;
+  return map.getHeight(x, y);
 }
 
 export function setHeight(map: MapGrid, x: number, y: number, h: number): void {
-  if (!inBounds(map, x, y)) return;
-  map.heights[index(map, x, y)] = Math.max(0, Math.min(MAX_GROUND_HEIGHT, h));
+  map.setHeight(x, y, Math.max(0, Math.min(MAX_GROUND_HEIGHT, h)));
 }
 
 export function isWalkable(map: MapGrid, x: number, y: number): boolean {
-  if (!inBounds(map, x, y)) return false;
-  return tileDef(getTileId(map, x, y)).walkable;
+  return tileWalkable(map.getTile(x, y));
 }
 
 export function isOpaque(map: MapGrid, x: number, y: number): boolean {
-  if (!inBounds(map, x, y)) return true;
-  return tileDef(getTileId(map, x, y)).opaque;
+  return tileOpaque(map.getTile(x, y));
 }
 
 /**
@@ -70,17 +48,15 @@ export function isOpaque(map: MapGrid, x: number, y: number): boolean {
  *
  * The destination must be walkable, and — the terrain-height rule — if both cells are open ground
  * the step can climb or descend at most `MAX_STEP_HEIGHT_DELTA` rungs of the `. ░ ▒ ▓ █` ladder.
- * You cross the slope to get up the ridge, you don't step from flat ground straight onto the top.
- * Hard barriers (`rock`/`wall`) are never passable regardless of height. Tiles that aren't ground
- * (floor, door) don't carry a meaningful height, so the delta check only applies ground-to-ground.
+ * Hard barriers (`rock`/`wall`/void) are never passable regardless of height. Tiles that aren't
+ * ground (floor, door) carry no meaningful height, so the delta check only applies ground-to-ground.
  */
 export function canStep(map: MapGrid, from: Point, to: Point): boolean {
-  if (!isWalkable(map, to.x, to.y)) return false;
+  const toTile = map.getTile(to.x, to.y);
+  if (!tileWalkable(toTile)) return false;
 
-  const fromIsGround = getTileId(map, from.x, from.y) === 'ground';
-  const toIsGround = getTileId(map, to.x, to.y) === 'ground';
-  if (fromIsGround && toIsGround) {
-    const delta = Math.abs(getHeight(map, to.x, to.y) - getHeight(map, from.x, from.y));
+  if (toTile === GROUND_TILE && map.getTile(from.x, from.y) === GROUND_TILE) {
+    const delta = Math.abs(map.getHeight(to.x, to.y) - map.getHeight(from.x, from.y));
     if (delta > MAX_STEP_HEIGHT_DELTA) return false;
   }
 

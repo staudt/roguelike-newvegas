@@ -1,10 +1,9 @@
 import { BASE_FONT_SIZE, FONT_FAMILY, LINE_HEIGHT_RATIO } from '../config/constants';
 import { PALETTE } from '../config/palette';
 import type { GameState, Space } from '../engine/GameState';
-import { getActiveSpace, worldToLocal } from '../engine/GameState';
+import { getActiveSpace } from '../engine/GameState';
 import { rectContains, type Rect } from '../utils/geometry';
-import { inBounds } from '../world/GameMap';
-import { visualFor } from '../world/Tile';
+import { VOID_TILE, tileIdOf, visualFor } from '../world/Tile';
 import { drawBalloon } from './Balloon';
 import { Camera } from './Camera';
 import { isConnectedWall, wallGlyph } from './WallGlyphs';
@@ -80,7 +79,7 @@ export class Renderer {
   render(state: GameState): void {
     const ctx = this.ctx;
     const space = getActiveSpace(state);
-    this.camera.centerOn(state.player, space.grid.width, space.grid.height);
+    this.camera.centerOn(state.player);
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -89,9 +88,7 @@ export class Renderer {
     ctx.fillStyle = PALETTE.unexplored;
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-    const footprint: Rect | null = space.indoor
-      ? { x: space.worldOrigin.x, y: space.worldOrigin.y, width: space.grid.width, height: space.grid.height }
-      : null;
+    const footprint: Rect | null = space.indoor ? space.grid.bounds() : null;
 
     for (let sy = 0; sy < this.camera.rows; sy++) {
       for (let sx = 0; sx < this.camera.cols; sx++) {
@@ -103,21 +100,17 @@ export class Renderer {
         // like you've stepped inside rather than crossed a loading screen.
         if (footprint && !rectContains(footprint, { x: worldX, y: worldY })) continue;
 
-        const local = worldToLocal(space, { x: worldX, y: worldY });
-        if (!inBounds(space.grid, local.x, local.y)) continue;
+        const map = space.grid;
+        if (!map.has(worldX, worldY)) continue;
+        const tile = map.getTile(worldX, worldY);
+        if (tile === VOID_TILE || !map.isExplored(worldX, worldY)) continue;
 
-        const idx = local.y * space.grid.width + local.x;
-        if (!space.explored[idx]) continue;
-
-        this.drawTerrainCell(space, local.x, local.y, sx, sy, space.visible[idx] === 1);
+        this.drawTerrainCell(space, worldX, worldY, sx, sy, space.visible.has(worldX, worldY));
       }
     }
 
     for (const creature of [...space.npcs, ...space.monsters]) {
-      const local = worldToLocal(space, creature);
-      if (!inBounds(space.grid, local.x, local.y)) continue;
-      const idx = local.y * space.grid.width + local.x;
-      if (!space.visible[idx]) continue;
+      if (!space.visible.has(creature.x, creature.y)) continue;
       const screen = this.camera.worldToScreen(creature.x, creature.y);
       if (creature.hostile) this.drawHostileRing(screen.x, screen.y);
       this.drawGlyph(screen.x, screen.y, creature.glyph, creature.fg);
@@ -134,17 +127,17 @@ export class Renderer {
 
   private drawTerrainCell(
     space: Space,
-    localX: number,
-    localY: number,
+    worldX: number,
+    worldY: number,
     sx: number,
     sy: number,
     visible: boolean,
   ): void {
     const grid = space.grid;
-    const tileId = grid.tiles[localY * grid.width + localX]!;
-    const height = grid.heights[localY * grid.width + localX] ?? 0;
+    const tileId = tileIdOf(grid.getTile(worldX, worldY));
+    const height = grid.getHeight(worldX, worldY);
     const visual = visualFor(tileId, height);
-    const glyph = isConnectedWall(tileId) ? wallGlyph(grid, localX, localY) : visual.glyph;
+    const glyph = isConnectedWall(tileId) ? wallGlyph(grid, worldX, worldY) : visual.glyph;
 
     const screenX = sx * this.camera.cellW;
     const screenY = sy * this.camera.cellH;

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { isWalkable } from '../src/world/GameMap';
-import { loadSpace, serializeSpace, type SpaceJSON } from '../src/world/MapLoader';
-import worldMapJson from '../src/world/goodsprings/worldMap.json';
+import { getHeight, getTileId, isWalkable } from '../src/world/GameMap';
+import { FlatMap } from '../src/world/FlatMap';
+import { ChunkedMap } from '../src/world/ChunkedMap';
+import { encodeChunk } from '../src/world/ChunkCodec';
+import { loadSpace, loadWorld, serializeSpace, type SpaceJSON, type WorldMetaJSON } from '../src/world/MapLoader';
+import { loadRealWorld, readWorldChunks, readWorldMeta } from './helpers/world';
 
 function buildFixture(): SpaceJSON {
   return {
@@ -33,10 +36,12 @@ describe('loadSpace / serializeSpace round trip', () => {
     const fixture = buildFixture();
     const space = loadSpace(fixture);
 
-    expect(space.grid.width).toBe(fixture.width);
-    expect(space.grid.height).toBe(fixture.height);
-    expect(space.grid.tiles).toEqual(fixture.tiles);
-    expect(Array.from(space.grid.heights)).toEqual(fixture.heights);
+    expect(space.grid).toBeInstanceOf(FlatMap);
+    expect(space.grid.bounds()).toEqual({ x: 3, y: 7, width: 3, height: 2 });
+    const tiles: string[] = [];
+    for (let y = 7; y < 9; y++) for (let x = 3; x < 6; x++) tiles.push(getTileId(space.grid, x, y));
+    expect(tiles).toEqual(fixture.tiles);
+    expect(getHeight(space.grid, 3, 7)).toBe(0);
   });
 
   it('loads places as named rects, copied rather than aliased', () => {
@@ -60,7 +65,7 @@ describe('loadSpace / serializeSpace round trip', () => {
     expect(space.id).toBe('fixture');
     expect(space.name).toBe('Fixture Space');
     expect(space.indoor).toBe(true);
-    expect(space.worldOrigin).toEqual({ x: 3, y: 7 });
+    expect((space.grid as FlatMap).origin).toEqual({ x: 3, y: 7 });
     expect(space.transitions).toEqual([{ x: 5, y: 7, toSpace: 'world' }]);
     expect(space.npcs).toHaveLength(1);
     expect(space.npcs[0]).toMatchObject({
@@ -73,14 +78,10 @@ describe('loadSpace / serializeSpace round trip', () => {
     });
   });
 
-  it('initializes fresh, fully-unseen visible/explored sets sized to the grid', () => {
-    const fixture = buildFixture();
-    const space = loadSpace(fixture);
-
-    expect(space.visible).toHaveLength(fixture.width * fixture.height);
-    expect(space.explored).toHaveLength(fixture.width * fixture.height);
-    expect(Array.from(space.visible).every((v) => v === 0)).toBe(true);
-    expect(Array.from(space.explored).every((v) => v === 0)).toBe(true);
+  it('initializes a fresh, empty view and nothing explored', () => {
+    const space = loadSpace(buildFixture());
+    expect(space.visible.width).toBe(0);
+    for (let y = 7; y < 9; y++) for (let x = 3; x < 6; x++) expect(space.grid.isExplored(x, y)).toBe(false);
   });
 
   it('rejects a tiles array whose length does not match width*height', () => {
@@ -98,20 +99,61 @@ describe('loadSpace / serializeSpace round trip', () => {
   it('defensively copies arrays rather than aliasing the input', () => {
     const fixture = buildFixture();
     const space = loadSpace(fixture);
-    space.grid.tiles[0] = 'wall';
+    (space.grid as FlatMap).tiles[0] = 0;
     space.transitions[0]!.toSpace = 'mutated';
     expect(fixture.tiles[0]).toBe('floor');
+    expect(getTileId(space.grid, 3, 7)).toBe('void');
     expect(fixture.transitions[0]!.toSpace).toBe('world');
   });
 });
 
-describe('real Goodsprings content: worldMap.json', () => {
-  const space = loadSpace(worldMapJson as SpaceJSON);
+describe('loadWorld', () => {
+  const meta = readWorldMeta();
 
-  it('has dimensions matching its tiles/heights arrays', () => {
-    expect(space.grid.tiles).toHaveLength(worldMapJson.width * worldMapJson.height);
-    expect(space.grid.heights).toHaveLength(worldMapJson.width * worldMapJson.height);
+  it('builds a chunked world from meta plus chunk files, with entities placed', () => {
+    const space = loadRealWorld();
+    expect(space.grid).toBeInstanceOf(ChunkedMap);
+    expect(space.id).toBe('world');
+    expect(space.name).toBe(meta.name);
+    expect(space.indoor).toBe(false);
+    expect(space.npcs.map((n) => n.id)).toEqual(meta.npcs.map((n) => n.id));
+    expect(space.monsters).toHaveLength(meta.monsters!.length);
+    expect(space.places.map((p) => p.name)).toEqual(["Prospector Saloon", "Doc Mitchell's House"]);
+    expect(space.transitions).toEqual([]);
+    expect((space.grid as ChunkedMap).chunkList()).toHaveLength(readWorldChunks().length);
   });
+
+  it('round-trips chunks: re-encoding the loaded chunks decodes to the same cells', () => {
+    const chunks = readWorldChunks();
+    const space = loadWorld(meta, chunks);
+    const again = loadWorld(meta, (space.grid as ChunkedMap).chunkList().map(encodeChunk));
+    for (const c of chunks) {
+      for (let i = 0; i < 64 * 64; i += 37) {
+        const x = c.cx * 64 + (i % 64);
+        const y = c.cy * 64 + Math.floor(i / 64);
+        expect(getTileId(again.grid, x, y)).toBe(getTileId(space.grid, x, y));
+        expect(getHeight(again.grid, x, y)).toBe(getHeight(space.grid, x, y));
+      }
+    }
+  });
+
+  it('loads with no chunks at all (everything void) and places entities regardless', () => {
+    const empty: WorldMetaJSON = { ...meta };
+    const space = loadWorld(empty, []);
+    expect(space.grid.has(0, 0)).toBe(false);
+    expect(space.npcs.length).toBe(meta.npcs.length);
+  });
+
+  it('knows where the real map ends: cells outside the authored chunks are void', () => {
+    const space = loadRealWorld();
+    expect(getTileId(space.grid, -1, 0)).toBe('void');
+    expect(getTileId(space.grid, 0, -1)).toBe('void');
+  });
+});
+
+describe('real Goodsprings content: world.json + chunks', () => {
+  const space = loadRealWorld();
+  const meta = readWorldMeta();
 
   it('places every NPC on a walkable tile', () => {
     for (const npc of space.npcs) {
@@ -128,7 +170,7 @@ describe('real Goodsprings content: worldMap.json', () => {
   });
 
   it('documents a playerStart on walkable ground', () => {
-    const start = worldMapJson.playerStart;
+    const start = meta.playerStart!;
     expect(start).toEqual({ x: 18, y: 24 });
     expect(isWalkable(space.grid, start.x, start.y)).toBe(true);
   });

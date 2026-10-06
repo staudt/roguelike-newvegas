@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { computeVisible, isVisible, markExplored } from '../src/fov/Visibility';
+import { VisibleSet } from '../src/fov/VisibleSet';
 import { createEmptyGrid, setTileId } from '../src/world/GameMap';
 
 describe('computeVisible', () => {
@@ -42,37 +43,42 @@ describe('computeVisible', () => {
 describe('markExplored', () => {
   it('is monotonic — a cell stays explored after it leaves current visibility', () => {
     const grid = createEmptyGrid(11, 1, 'ground');
-    const explored = new Uint8Array(grid.width * grid.height);
 
     // First look from the left end: (9,0) is within radius and in sight.
     const visibleFromLeft = computeVisible(grid, { x: 0, y: 0 }, 10);
     expect(isVisible(visibleFromLeft, grid, 9, 0)).toBe(true);
-    markExplored(explored, visibleFromLeft);
-    expect(explored[9]).toBe(1);
+    markExplored(grid, visibleFromLeft);
+    expect(grid.isExplored(9, 0)).toBe(true);
 
-    // Now move the origin far away so (9,0) is no longer currently visible...
-    const visibleFromRight = computeVisible(grid, { x: 10, y: 0 }, 1);
-    expect(isVisible(visibleFromRight, grid, 9, 0)).toBe(true); // still adjacent, in range here
-    // ...use a tighter radius so it genuinely drops out of the *current* visible set.
+    // Now a tighter radius so (9,0) genuinely drops out of the *current* visible set.
     const visibleTight = computeVisible(grid, { x: 10, y: 0 }, 0);
     expect(isVisible(visibleTight, grid, 9, 0)).toBe(false);
 
-    markExplored(explored, visibleTight);
+    markExplored(grid, visibleTight);
     // Explored must remain true even though it is no longer currently visible.
-    expect(explored[9]).toBe(1);
+    expect(grid.isExplored(9, 0)).toBe(true);
   });
 
-  it('only ORs in newly visible bits, never clears previously explored ones', () => {
+  it('only adds newly visible cells, never clears previously explored ones', () => {
     const grid = createEmptyGrid(5, 1, 'ground');
-    const explored = new Uint8Array(grid.width);
-    explored[0] = 1;
-    explored[4] = 1;
+    grid.markExplored(0, 0);
+    grid.markExplored(4, 0);
 
-    const visible = new Uint8Array(grid.width);
-    visible[2] = 1;
+    const visible = new VisibleSet(0, 0, 5, 1);
+    visible.add(2, 0);
 
-    markExplored(explored, visible);
+    markExplored(grid, visible);
 
-    expect(Array.from(explored)).toEqual([1, 0, 1, 0, 1]);
+    expect([0, 1, 2, 3, 4].map((x) => (grid.isExplored(x, 0) ? 1 : 0))).toEqual([1, 0, 1, 0, 1]);
+  });
+
+  it('never marks cells that are not in the map', () => {
+    const grid = createEmptyGrid(2, 1, 'ground');
+    const visible = new VisibleSet(-2, 0, 6, 1);
+    visible.add(-1, 0);
+    visible.add(1, 0);
+    markExplored(grid, visible);
+    expect(grid.isExplored(-1, 0)).toBe(false);
+    expect(grid.isExplored(1, 0)).toBe(true);
   });
 });

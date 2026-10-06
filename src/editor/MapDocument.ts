@@ -1,17 +1,24 @@
 import { MAX_GROUND_HEIGHT } from '../config/palette';
 import type { Point, Rect } from '../utils/geometry';
-import type { MapGrid } from '../world/GameMap';
 import type { InteractionId } from '../entities/Npc';
 import type { BuildingPatch } from '../world/buildingTemplate';
-import type { SpaceJSON } from '../world/MapLoader';
+import { ChunkedMap, chunkKey, createChunk, type Chunk } from '../world/ChunkedMap';
+import { chunkToText, decodeChunk, encodeChunk, type ChunkJSON } from '../world/ChunkCodec';
+import { FlatMap } from '../world/FlatMap';
+import { GROUND_TILE, VOID_TILE, tileIdOf, tileIndex } from '../world/Tile';
+import type { TileMap } from '../world/TileMap';
 
 /**
- * The map editor's in-memory model of one space: the tile grid, the height grid, NPCs and
- * transitions, plus the paint/undo operations that mutate them.
+ * The map editor's in-memory model of one space: a `TileMap` (the chunked world, or a small flat
+ * space such as an extra floor) plus the entity lists, and the paint/undo/expand/save-plan
+ * operations that mutate them. Every coordinate is a WORLD coordinate.
  *
- * Deliberately DOM-free and dependency-free (besides the on-disk `SpaceJSON` shape it reads and
- * writes), mirroring rogueout's `PlanDocument` — the editing logic is testable without a browser,
- * and `main.ts` is only responsible for turning mouse/keyboard events into calls on this class.
+ * Deliberately DOM-free, so the editing logic is testable without a browser; `main.ts` only turns
+ * mouse/keyboard events into calls on this class.
+ *
+ * Undo is delta based: a stroke records `{x, y, oldTile, oldHeight}` for each cell it first
+ * touches (plus the entity lists, which are tiny), never a copy of the map — the world can be
+ * arbitrarily large.
  */
 export interface EditableNpc {
   id: string;
@@ -42,9 +49,65 @@ export interface EditableTransition {
   toSpace: string;
 }
 
-interface Snapshot {
+export interface NpcJson {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  dialogue: string[];
+  fg?: string;
+  interactions?: InteractionId[];
+}
+
+/** world.json: everything about the world except its cells (those live in chunk files). */
+export interface WorldMetaJSON {
+  kind: 'chunked';
+  id: string;
+  name: string;
+  playerStart?: Point;
+  npcs: NpcJson[];
+  monsters?: Array<{ defId: string; x: number; y: number }>;
+  transitions: Array<{ x: number; y: number; toSpace: string }>;
+  places?: Array<{ name: string; rect: Rect }>;
+}
+
+/** A flat space file (an extra floor of a building): the pre-chunk `SpaceJSON` shape. */
+export interface FlatSpaceJSON {
+  id: string;
+  name: string;
+  indoor: boolean;
+  worldOrigin: Point;
+  width: number;
+  height: number;
   tiles: string[];
   heights: number[];
+  npcs: NpcJson[];
+  monsters?: Array<{ defId: string; x: number; y: number }>;
+  transitions: Array<{ x: number; y: number; toSpace: string }>;
+  places?: Array<{ name: string; rect: Rect }>;
+  playerStart?: Point;
+  building?: string;
+  floor?: number;
+}
+
+export type ExpandSide = 'N' | 'S' | 'E' | 'W';
+export type ExpandFill = 'ground' | 'rock' | 'void';
+
+/** Flood fills stop here: void is infinite, so an unbounded fill would never finish. */
+export const FILL_CAP = 20_000;
+
+interface CellDelta {
+  x: number;
+  y: number;
+  oldTile: number;
+  oldHeight: number;
+}
+
+interface Stroke {
+  cells: CellDelta[];
+  seen: Set<string>;
+  addedChunks: Chunk[];
+  removedChunks: Chunk[];
   npcs: EditableNpc[];
   monsters: EditableMonster[];
   transitions: EditableTransition[];
@@ -52,13 +115,22 @@ interface Snapshot {
   playerStart: Point | undefined;
 }
 
-type NpcJson = SpaceJSON['npcs'][number];
+export interface SavePlan {
+  /** Chunk files to write (dirty or new, and not entirely void). */
+  writes: Array<{ cx: number; cy: number; text: string }>;
+  /** Chunk files to remove: removed from the doc, or now entirely void. */
+  deletes: Array<{ cx: number; cy: number }>;
+  /** world.json text (null for a flat doc). */
+  metaText: string | null;
+  /** The whole file for a flat doc (null for the world). */
+  flatText: string | null;
+}
 
 function copyNpc(n: EditableNpc): EditableNpc {
   return { ...n, dialogue: [...n.dialogue], interactions: [...n.interactions] };
 }
 
-function copyNpcFromJson(n: NpcJson): EditableNpc {
+function npcFromJson(n: NpcJson): EditableNpc {
   return { ...n, dialogue: [...n.dialogue], interactions: n.interactions ? [...n.interactions] : ['talk'] };
 }
 
@@ -81,105 +153,93 @@ function copyPlaces(places: readonly EditablePlace[]): EditablePlace[] {
   return places.map((p) => ({ name: p.name, rect: { ...p.rect } }));
 }
 
-/** Matches PlanDocument's cap: deep enough to be useful, shallow enough not to accumulate forever. */
-const MAX_UNDO = 40;
+/** Deep enough to be useful; each entry is only the cells a stroke changed, so this is cheap. */
+const MAX_UNDO = 200;
+
+function chunkIsVoid(chunk: Chunk): boolean {
+  return chunk.tiles.every((t) => t === VOID_TILE);
+}
 
 export class MapDocument {
+  readonly kind: 'world' | 'flat';
   id: string;
   name: string;
-  indoor: boolean;
-  worldOrigin: Point;
-  readonly width: number;
-  readonly height: number;
+  readonly map: TileMap;
   npcs: EditableNpc[];
   monsters: EditableMonster[];
   transitions: EditableTransition[];
   places: EditablePlace[];
   playerStart: Point | undefined;
-  /** Optional multi-floor metadata, carried through untouched so a save never drops it. */
-  building: string | undefined;
-  floor: number | undefined;
+  /** Flat spaces only: metadata carried through untouched so a save never drops it. */
+  readonly flatExtras: { indoor: boolean; building: string | undefined; floor: number | undefined };
+  /** World only: whether the loaded file had a `places` key, so a no-op save keeps its shape. */
+  private readonly hadPlacesKey: boolean;
+  /** Chunk files believed to exist on disk, keyed by chunkKey. */
+  private readonly onDisk = new Map<number, { cx: number; cy: number }>();
+  private readonly undoStack: Stroke[] = [];
 
-  private tiles: string[];
-  /** Row-major, 0..MAX_GROUND_HEIGHT. Meaningful only where the tile is 'ground', same as GameMap. */
-  private heights: number[];
-  private readonly undoStack: Snapshot[] = [];
-
-  constructor(data: SpaceJSON) {
-    const expected = data.width * data.height;
-    if (data.tiles.length !== expected) {
-      throw new Error(
-        `Space "${data.id}": tiles length ${data.tiles.length} does not match ${data.width}x${data.height}`,
-      );
-    }
-    if (data.heights.length !== expected) {
-      throw new Error(
-        `Space "${data.id}": heights length ${data.heights.length} does not match ${data.width}x${data.height}`,
-      );
-    }
-
+  private constructor(
+    kind: 'world' | 'flat',
+    map: TileMap,
+    data: WorldMetaJSON | FlatSpaceJSON,
+  ) {
+    this.kind = kind;
+    this.map = map;
     this.id = data.id;
     this.name = data.name;
-    this.indoor = data.indoor;
-    this.worldOrigin = { ...data.worldOrigin };
-    this.width = data.width;
-    this.height = data.height;
-    this.tiles = [...data.tiles];
-    this.heights = [...data.heights];
-    this.npcs = data.npcs.map(copyNpcFromJson);
+    this.npcs = data.npcs.map(npcFromJson);
     this.monsters = (data.monsters ?? []).map((m) => ({ ...m }));
     this.transitions = data.transitions.map((t) => ({ ...t }));
     this.places = copyPlaces(data.places ?? []);
     this.playerStart = data.playerStart ? { ...data.playerStart } : undefined;
-    this.building = data.building;
-    this.floor = data.floor;
+    this.hadPlacesKey = data.places !== undefined;
+    const flat = kind === 'flat' ? (data as FlatSpaceJSON) : undefined;
+    this.flatExtras = { indoor: flat?.indoor ?? false, building: flat?.building, floor: flat?.floor };
   }
 
-  toJSON(): SpaceJSON {
-    const json: SpaceJSON = {
-      id: this.id,
-      name: this.name,
-      indoor: this.indoor,
-      worldOrigin: { ...this.worldOrigin },
-      width: this.width,
-      height: this.height,
-      tiles: [...this.tiles],
-      heights: [...this.heights],
-      npcs: this.npcs.map(npcToJson),
-      monsters: this.monsters.map((m) => ({ ...m })),
-      transitions: this.transitions.map((t) => ({ ...t })),
-    };
-    if (this.places.length > 0) json.places = copyPlaces(this.places);
-    if (this.playerStart) json.playerStart = { ...this.playerStart };
-    if (this.building !== undefined) json.building = this.building;
-    if (this.floor !== undefined) json.floor = this.floor;
-    return json;
+  static fromWorld(meta: WorldMetaJSON, chunks: ChunkJSON[]): MapDocument {
+    const map = new ChunkedMap();
+    const doc = new MapDocument('world', map, meta);
+    for (const json of chunks) {
+      const chunk = decodeChunk(json);
+      map.addChunk(chunk);
+      doc.onDisk.set(chunkKey(chunk.cx, chunk.cy), { cx: chunk.cx, cy: chunk.cy });
+    }
+    return doc;
   }
 
-  inBounds(x: number, y: number): boolean {
-    return x >= 0 && y >= 0 && x < this.width && y < this.height;
+  static fromFlat(data: FlatSpaceJSON): MapDocument {
+    const expected = data.width * data.height;
+    if (data.tiles.length !== expected || data.heights.length !== expected) {
+      throw new Error(`Space "${data.id}": tiles/heights length does not match ${data.width}x${data.height}`);
+    }
+    const map = new FlatMap(
+      data.width,
+      data.height,
+      data.worldOrigin,
+      Uint8Array.from(data.tiles, (t) => tileIndex(t)),
+      Uint8Array.from(data.heights),
+    );
+    return new MapDocument('flat', map, data);
   }
 
-  private index(x: number, y: number): number {
-    return y * this.width + x;
-  }
+  // --- reading -------------------------------------------------------------------------------
 
   tileAt(x: number, y: number): string {
-    if (!this.inBounds(x, y)) return 'rock';
-    return this.tiles[this.index(x, y)]!;
+    return tileIdOf(this.map.getTile(x, y));
   }
 
   heightAt(x: number, y: number): number {
-    if (!this.inBounds(x, y)) return 0;
-    return this.heights[this.index(x, y)]!;
+    return this.map.getHeight(x, y);
   }
 
-  /**
-   * A snapshot in the runtime `MapGrid` shape, so the editor's canvas can reuse the game's own
-   * `wallGlyph`/`getTileId` helpers for connected wall rendering instead of re-deriving them.
-   */
-  toGrid(): MapGrid {
-    return { width: this.width, height: this.height, tiles: [...this.tiles], heights: Uint8Array.from(this.heights) };
+  /** The chunked map, if this is the world. */
+  chunked(): ChunkedMap | null {
+    return this.map instanceof ChunkedMap ? this.map : null;
+  }
+
+  chunkCount(): number {
+    return this.chunked()?.chunkList().length ?? 0;
   }
 
   // --- undo -----------------------------------------------------------------------------------
@@ -187,8 +247,10 @@ export class MapDocument {
   /** Call once before a stroke, not per tile — an undo should take back the whole drag. */
   beginStroke(): void {
     this.undoStack.push({
-      tiles: [...this.tiles],
-      heights: [...this.heights],
+      cells: [],
+      seen: new Set(),
+      addedChunks: [],
+      removedChunks: [],
       npcs: this.npcs.map(copyNpc),
       monsters: this.monsters.map((m) => ({ ...m })),
       transitions: this.transitions.map((t) => ({ ...t })),
@@ -199,23 +261,57 @@ export class MapDocument {
   }
 
   undo(): boolean {
-    const previous = this.undoStack.pop();
-    if (!previous) return false;
-    this.tiles = previous.tiles;
-    this.heights = previous.heights;
-    this.npcs = previous.npcs;
-    this.monsters = previous.monsters;
-    this.transitions = previous.transitions;
-    this.places = previous.places;
-    this.playerStart = previous.playerStart;
+    const stroke = this.undoStack.pop();
+    if (!stroke) return false;
+    for (let i = stroke.cells.length - 1; i >= 0; i--) {
+      const c = stroke.cells[i]!;
+      this.map.setTile(c.x, c.y, c.oldTile);
+      this.map.setHeight(c.x, c.y, c.oldHeight);
+    }
+    const chunked = this.chunked();
+    if (chunked) {
+      for (const c of stroke.addedChunks) chunked.removeChunk(c.cx, c.cy);
+      for (const c of stroke.removedChunks) {
+        c.dirty = true;
+        chunked.addChunk(c);
+      }
+    }
+    this.npcs = stroke.npcs;
+    this.monsters = stroke.monsters;
+    this.transitions = stroke.transitions;
+    this.places = stroke.places;
+    this.playerStart = stroke.playerStart;
     return true;
+  }
+
+  private stroke(): Stroke {
+    if (this.undoStack.length === 0) this.beginStroke();
+    return this.undoStack[this.undoStack.length - 1]!;
+  }
+
+  /** Records a cell's old values the first time a stroke touches it. */
+  private record(x: number, y: number): void {
+    const s = this.stroke();
+    const key = `${x},${y}`;
+    if (s.seen.has(key)) return;
+    s.seen.add(key);
+    s.cells.push({ x, y, oldTile: this.map.getTile(x, y), oldHeight: this.map.getHeight(x, y) });
   }
 
   // --- tile painting ----------------------------------------------------------------------------
 
-  paintTile(x: number, y: number, tileId: string): void {
-    if (!this.inBounds(x, y)) return;
-    this.tiles[this.index(x, y)] = tileId;
+  /** Whether painting at (x, y) can do anything: the world grows on demand, a flat space does not. */
+  canPaint(x: number, y: number): boolean {
+    return this.kind === 'world' || this.map.has(x, y);
+  }
+
+  paintTile(x: number, y: number, tileId: string): boolean {
+    if (!this.canPaint(x, y)) return false;
+    const tile = tileIndex(tileId);
+    if (this.map.getTile(x, y) === tile && (tile === VOID_TILE || this.map.has(x, y))) return false;
+    this.record(x, y);
+    this.map.setTile(x, y, tile);
+    return true;
   }
 
   /** Bresenham, so a fast drag doesn't leave gaps between mousemove samples. */
@@ -278,31 +374,191 @@ export class MapDocument {
     this.places.push({ name: patch.place.name, rect: { ...patch.place.rect } });
   }
 
-  /** Flood fill, 4-connected. */
-  fillTile(from: Point, tileId: string): void {
-    const target = this.tileAt(from.x, from.y);
-    if (target === tileId || !this.inBounds(from.x, from.y)) return;
+  /**
+   * Flood fill, 4-connected, from `from`. Void is infinite, so the flood is capped at `cap` cells;
+   * `capped` tells the caller it stopped early.
+   */
+  fillTile(from: Point, tileId: string, cap = FILL_CAP): { filled: number; capped: boolean } {
+    const target = this.map.getTile(from.x, from.y);
+    const next = tileIndex(tileId);
+    if (target === next || !this.canPaint(from.x, from.y)) return { filled: 0, capped: false };
 
+    // Painting as we go makes the new tile the "visited" mark: a painted cell no longer reads
+    // `target`, so it is never filled twice.
+    let filled = 0;
     const stack: Point[] = [from];
     while (stack.length > 0) {
       const { x, y } = stack.pop()!;
-      if (!this.inBounds(x, y) || this.tileAt(x, y) !== target) continue;
+      if (this.map.getTile(x, y) !== target || !this.canPaint(x, y)) continue;
+      if (filled >= cap) return { filled, capped: true };
       this.paintTile(x, y, tileId);
+      filled++;
       stack.push({ x: x + 1, y }, { x: x - 1, y }, { x, y: y + 1 }, { x, y: y - 1 });
     }
+    return { filled, capped: false };
   }
 
   // --- height painting --------------------------------------------------------------------------
 
   /** Paints an absolute height level (clamped 0..MAX_GROUND_HEIGHT). */
   setHeight(x: number, y: number, level: number): void {
-    if (!this.inBounds(x, y)) return;
-    this.heights[this.index(x, y)] = Math.max(0, Math.min(MAX_GROUND_HEIGHT, level));
+    if (!this.canPaint(x, y)) return;
+    const clamped = Math.max(0, Math.min(MAX_GROUND_HEIGHT, level));
+    if (this.map.getHeight(x, y) === clamped) return;
+    this.record(x, y);
+    this.map.setHeight(x, y, clamped);
   }
 
   /** Raises (positive delta) or lowers (negative delta) height by one rung, clamped. */
   adjustHeight(x: number, y: number, delta: number): void {
     this.setHeight(x, y, this.heightAt(x, y) + delta);
+  }
+
+  // --- world size -------------------------------------------------------------------------------
+
+  /** Bounds of the world in chunk coordinates, or null when it has no chunks. */
+  chunkBounds(): { cx0: number; cy0: number; cx1: number; cy1: number } | null {
+    const chunked = this.chunked();
+    if (!chunked) return null;
+    const list = chunked.chunkList();
+    if (list.length === 0) return null;
+    let cx0 = Infinity;
+    let cy0 = Infinity;
+    let cx1 = -Infinity;
+    let cy1 = -Infinity;
+    for (const c of list) {
+      cx0 = Math.min(cx0, c.cx);
+      cy0 = Math.min(cy0, c.cy);
+      cx1 = Math.max(cx1, c.cx);
+      cy1 = Math.max(cy1, c.cy);
+    }
+    return { cx0, cy0, cx1, cy1 };
+  }
+
+  /** Adds one empty chunk into the current stroke. False if it exists already or this isn't the world. */
+  private addChunkInStroke(cx: number, cy: number, fill: ExpandFill): boolean {
+    const chunked = this.chunked();
+    if (!chunked || chunked.getChunk(cx, cy)) return false;
+    const chunk = createChunk(cx, cy, fill === 'void' ? VOID_TILE : fill === 'rock' ? tileIndex('rock') : GROUND_TILE);
+    chunk.dirty = true;
+    chunked.addChunk(chunk);
+    this.stroke().addedChunks.push(chunk);
+    return true;
+  }
+
+  /** Adds one chunk (an undoable step). Returns false if it exists already or this isn't the world. */
+  addChunk(cx: number, cy: number, fill: ExpandFill): boolean {
+    const chunked = this.chunked();
+    if (!chunked || chunked.getChunk(cx, cy)) return false;
+    this.beginStroke();
+    return this.addChunkInStroke(cx, cy, fill);
+  }
+
+  /** Adds one chunk-thick strip along a side of the current bounds (one undo step). Returns the chunks added. */
+  expand(side: ExpandSide, fill: ExpandFill): Point[] {
+    const b = this.chunkBounds();
+    if (!b) return [];
+    this.beginStroke();
+    const coords: Point[] = [];
+    if (side === 'N' || side === 'S') {
+      const cy = side === 'N' ? b.cy0 - 1 : b.cy1 + 1;
+      for (let cx = b.cx0; cx <= b.cx1; cx++) coords.push({ x: cx, y: cy });
+    } else {
+      const cx = side === 'W' ? b.cx0 - 1 : b.cx1 + 1;
+      for (let cy = b.cy0; cy <= b.cy1; cy++) coords.push({ x: cx, y: cy });
+    }
+    return coords.filter((c) => this.addChunkInStroke(c.x, c.y, fill));
+  }
+
+  /** Removes a chunk from the doc (its file is deleted on save). Undoable. */
+  removeChunk(cx: number, cy: number): boolean {
+    const chunked = this.chunked();
+    if (!chunked || !chunked.getChunk(cx, cy)) return false;
+    this.beginStroke();
+    const removed = chunked.removeChunk(cx, cy)!;
+    this.stroke().removedChunks.push(removed);
+    return true;
+  }
+
+  // --- save -------------------------------------------------------------------------------------
+
+  /** Meta in the on-disk shape and key order of world.json, with a trailing newline. */
+  metaText(): string {
+    const meta: WorldMetaJSON = {
+      kind: 'chunked',
+      id: this.id,
+      name: this.name,
+      ...(this.playerStart ? { playerStart: { ...this.playerStart } } : {}),
+      npcs: this.npcs.map(npcToJson),
+      monsters: this.monsters.map((m) => ({ ...m })),
+      transitions: this.transitions.map((t) => ({ ...t })),
+      ...(this.places.length > 0 || this.hadPlacesKey ? { places: copyPlaces(this.places) } : {}),
+    };
+    return JSON.stringify(meta, null, 2) + '\n';
+  }
+
+  flatText(): string {
+    const b = this.map.bounds();
+    const tiles: string[] = [];
+    const heights: number[] = [];
+    for (let y = b.y; y < b.y + b.height; y++) {
+      for (let x = b.x; x < b.x + b.width; x++) {
+        tiles.push(this.tileAt(x, y));
+        heights.push(this.heightAt(x, y));
+      }
+    }
+    const json: FlatSpaceJSON = {
+      id: this.id,
+      name: this.name,
+      indoor: this.flatExtras.indoor,
+      worldOrigin: { x: b.x, y: b.y },
+      width: b.width,
+      height: b.height,
+      tiles,
+      heights,
+      npcs: this.npcs.map(npcToJson),
+      monsters: this.monsters.map((m) => ({ ...m })),
+      transitions: this.transitions.map((t) => ({ ...t })),
+    };
+    if (this.places.length > 0) json.places = copyPlaces(this.places);
+    if (this.playerStart) json.playerStart = { ...this.playerStart };
+    if (this.flatExtras.building !== undefined) json.building = this.flatExtras.building;
+    if (this.flatExtras.floor !== undefined) json.floor = this.flatExtras.floor;
+    return JSON.stringify(json, null, 2) + '\n';
+  }
+
+  /** What a save has to do: only dirty chunks are written, vanished or all-void ones are deleted. */
+  savePlan(): SavePlan {
+    const chunked = this.chunked();
+    if (!chunked) return { writes: [], deletes: [], metaText: null, flatText: this.flatText() };
+    const writes: SavePlan['writes'] = [];
+    const deletes: SavePlan['deletes'] = [];
+    const present = new Set<number>();
+    for (const chunk of chunked.chunkList()) {
+      if (chunkIsVoid(chunk)) continue; // never written; deleted below if a file exists
+      const key = chunkKey(chunk.cx, chunk.cy);
+      present.add(key);
+      if (chunk.dirty || !this.onDisk.has(key)) {
+        writes.push({ cx: chunk.cx, cy: chunk.cy, text: chunkToText(encodeChunk(chunk)) });
+      }
+    }
+    for (const [key, c] of this.onDisk) if (!present.has(key)) deletes.push({ ...c });
+    return { writes, deletes, metaText: this.metaText(), flatText: null };
+  }
+
+  /** Call after the plan was written: clears dirty flags and forgets chunks that are gone. */
+  commitSave(plan: SavePlan): void {
+    const chunked = this.chunked();
+    if (!chunked) return;
+    for (const w of plan.writes) {
+      const chunk = chunked.getChunk(w.cx, w.cy);
+      if (chunk) chunk.dirty = false;
+      this.onDisk.set(chunkKey(w.cx, w.cy), { cx: w.cx, cy: w.cy });
+    }
+    for (const d of plan.deletes) this.onDisk.delete(chunkKey(d.cx, d.cy));
+    for (const chunk of chunked.chunkList()) {
+      if (chunkIsVoid(chunk)) chunked.removeChunk(chunk.cx, chunk.cy);
+    }
   }
 
   // --- npcs ---------------------------------------------------------------------------------
@@ -410,4 +666,3 @@ export class MapDocument {
     this.transitions = this.transitions.filter((t) => t !== transition);
   }
 }
-

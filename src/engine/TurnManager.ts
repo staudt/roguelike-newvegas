@@ -16,16 +16,14 @@ import {
   getActiveSpace,
   placeAt,
   sightRadiusFor,
-  worldToLocal,
   type GameState,
 } from './GameState';
 
 /** Recomputes the active space's visible/explored sets around the player. Also used on setup. */
 export function recomputeVisibility(state: GameState): void {
   const space = getActiveSpace(state);
-  const origin = worldToLocal(space, state.player);
-  space.visible = computeVisible(space.grid, origin, sightRadiusFor(space));
-  markExplored(space.explored, space.visible);
+  space.visible = computeVisible(space.grid, state.player, sightRadiusFor(space));
+  markExplored(space.grid, space.visible);
 }
 
 /** Says the NPC's next line, in the log and in a balloon, then moves them on to the line after. */
@@ -96,18 +94,15 @@ export function tryMovePlayer(
   const creature = creatureAt(space, target.x, target.y);
   if (creature) return bumpCreature(state, creature, events, rng);
 
-  const fromLocal = worldToLocal(space, state.player);
-  const toLocal = worldToLocal(space, target);
-
   // Walking into a closed door opens it (takes the turn, and you stay put) — NetHack's rule.
-  if (getTileId(space.grid, toLocal.x, toLocal.y) === 'door') {
-    setTileId(space.grid, toLocal.x, toLocal.y, 'openDoor');
+  if (getTileId(space.grid, target.x, target.y) === 'door') {
+    setTileId(space.grid, target.x, target.y, 'openDoor');
     addMessage(state, 'You open the door.');
     advanceTurn(state, events, rng);
     return true;
   }
 
-  if (!canStep(space.grid, fromLocal, toLocal)) return false;
+  if (!canStep(space.grid, state.player, target)) return false;
 
   const placeBefore = placeAt(space, state.player)?.name;
 

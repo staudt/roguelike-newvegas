@@ -58,3 +58,10 @@ export const PATH_NODE_BUDGET = 600;
 
 /** A hostile that has noticed you keeps hunting until you are this many times its awareness away. */
 export const LOSE_TRACK_FACTOR = 2.5;
+
+/**
+ * Only creatures within this many cells (Chebyshev) of the player act. The world is huge and
+ * everything beyond sight is asleep: it neither moves nor banks energy, so a tick costs the same
+ * however many creatures the world holds.
+ */
+export const SIM_RADIUS = 40;

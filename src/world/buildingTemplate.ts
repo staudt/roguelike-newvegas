@@ -1,6 +1,18 @@
-import type { Point } from '../utils/geometry';
-import type { SpaceJSON } from './MapLoader';
-import { TILES } from './Tile';
+import type { Point, Rect } from '../utils/geometry';
+import { tileIndex, tileWalkable } from './Tile';
+import type { TileMap } from './TileMap';
+
+const DOOR = tileIndex('door');
+const OPEN_DOOR = tileIndex('openDoor');
+
+/** What a placement is checked against: the map plus every marker/place that must not be built over. */
+export interface BuildingContext {
+  map: TileMap;
+  npcs: ReadonlyArray<{ name: string; x: number; y: number }>;
+  monsters: ReadonlyArray<{ defId: string; x: number; y: number }>;
+  playerStart?: Point | undefined;
+  places: ReadonlyArray<{ name: string; rect: Rect }>;
+}
 
 /**
  * Pure geometry for "a building": a ring of wall tiles with floor inside and one (closed) door,
@@ -91,16 +103,14 @@ export function buildBuilding(params: BuildingParams): BuildingPatch {
   };
 }
 
-/** Is the cell just outside the door somewhere a player can actually stand? */
-export function outsideDoorWalkable(world: SpaceJSON, rect: BuildingRect, side: DoorSide, offset: number): boolean {
+/** Is the cell just outside the door somewhere a player can actually stand? Void counts as no. */
+export function outsideDoorWalkable(map: TileMap, rect: BuildingRect, side: DoorSide, offset: number): boolean {
   const { outside } = doorCells(rect, side, offset);
-  if (outside.x < 0 || outside.y < 0 || outside.x >= world.width || outside.y >= world.height) return false;
-  const id = world.tiles[outside.y * world.width + outside.x];
-  return id !== undefined && TILES[id]?.walkable === true;
+  return tileWalkable(map.getTile(outside.x, outside.y));
 }
 
-/** Everything that makes a placement illegal, as human-readable messages (empty = fine). */
-export function validateBuilding(world: SpaceJSON, params: BuildingParams): string[] {
+/** Everything that makes a placement illegal, as human-readable messages (empty = fine). Void is fine to build over. */
+export function validateBuilding(world: BuildingContext, params: BuildingParams): string[] {
   const errors: string[] = [];
   const { rect, doorSide, doorOffset } = params;
 
@@ -108,10 +118,6 @@ export function validateBuilding(world: SpaceJSON, params: BuildingParams): stri
 
   if (rect.w < MIN_BUILDING_W || rect.h < MIN_BUILDING_H) {
     errors.push(`Too small: ${rect.w}x${rect.h} (minimum ${MIN_BUILDING_W}x${MIN_BUILDING_H}).`);
-    return errors;
-  }
-  if (rect.x < 1 || rect.y < 1 || rect.x + rect.w > world.width - 1 || rect.y + rect.h > world.height - 1) {
-    errors.push('Building must lie inside the map and not cover its border.');
     return errors;
   }
 
@@ -123,9 +129,9 @@ export function validateBuilding(world: SpaceJSON, params: BuildingParams): stri
   const inRect = (p: Point): boolean =>
     p.x >= rect.x && p.y >= rect.y && p.x < rect.x + rect.w && p.y < rect.y + rect.h;
   for (const n of world.npcs) if (inRect(n)) errors.push(`Overlaps NPC "${n.name}" at (${n.x}, ${n.y}).`);
-  for (const m of world.monsters ?? []) if (inRect(m)) errors.push(`Overlaps a ${m.defId} at (${m.x}, ${m.y}).`);
+  for (const m of world.monsters) if (inRect(m)) errors.push(`Overlaps a ${m.defId} at (${m.x}, ${m.y}).`);
   if (world.playerStart && inRect(world.playerStart)) errors.push('Overlaps the player start.');
-  for (const pl of world.places ?? []) {
+  for (const pl of world.places) {
     const r = pl.rect;
     if (rect.x < r.x + r.width && r.x < rect.x + rect.w && rect.y < r.y + r.height && r.y < rect.y + rect.h) {
       errors.push(`Overlaps the place "${pl.name}".`);
@@ -133,8 +139,8 @@ export function validateBuilding(world: SpaceJSON, params: BuildingParams): stri
   }
   for (let y = rect.y; y < rect.y + rect.h; y++) {
     for (let x = rect.x; x < rect.x + rect.w; x++) {
-      const id = world.tiles[y * world.width + x];
-      if (id === 'door' || id === 'openDoor') errors.push(`Overlaps an existing door at (${x}, ${y}).`);
+      const t = world.map.getTile(x, y);
+      if (t === DOOR || t === OPEN_DOOR) errors.push(`Overlaps an existing door at (${x}, ${y}).`);
     }
   }
   return errors;
