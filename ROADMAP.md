@@ -25,8 +25,8 @@ Box tool, live shape previews, game-matching cell proportions. The game auto-loa
 `transitions` machinery remain only for floors reached by stairs.
 
 ## Done — M2.6: scalable, growable world
-The world is a sparse set of 64x64 chunks in WORLD coordinates (negative allowed), behind a interface ( for the world,  for small spaces) — nothing outside  knows how
-cells are stored. One byte per tile, run-length-encoded chunk files (all of Goodsprings is 1.8 KB, was
+The world is a sparse set of 64x64 chunks in WORLD coordinates (negative allowed), behind a `TileMap` interface (`ChunkedMap` for the world, `FlatMap` for small spaces) — nothing outside
+`src/world` knows how cells are stored. One byte per tile, run-length-encoded chunk files (all of Goodsprings is 1.8 KB, was
 ~90 KB). Missing chunks are void: the hard stop where the map ends (the old rock border is gone).
 The game streams chunks (ring around the player loaded, far clean ones dropped, dirty ones kept,
 explored memory preserved); visibility uses a small window instead of a whole-map array; only creatures
