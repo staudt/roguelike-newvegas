@@ -104,13 +104,13 @@ export const EVASION_SPEED_THRESHOLD = 12;
 export const EVASION_PER_SPEED = 0.5;
 
 /** A gunshot alerts every hostile creature within this many cells (Chebyshev) of the shooter. */
-export const GUN_NOISE_RADIUS = 14;
+export const GUN_NOISE_RADIUS = 22;
 
 /** A scream (a peaceful hurt or killed) makes bystanders within this many cells come and look. */
-export const SCREAM_NOISE_RADIUS = 12;
+export const SCREAM_NOISE_RADIUS = 18;
 
 /** A call for help carries further than a scream: it is shouted on purpose. */
-export const SHOUT_NOISE_RADIUS = 16;
+export const SHOUT_NOISE_RADIUS = 24;
 
 /** Percent chance that a peaceful person in earshot of a gunshot goes to see. A shot alone is no alarm. */
 export const GUNSHOT_CURIOSITY_CHANCE = 30;

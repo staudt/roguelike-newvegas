@@ -83,6 +83,8 @@ non-peaceful always. `hostile` stays the runtime state, refreshed from standing 
 action. Nerve sets `UNARMED_FLEE_CHANCE` / `GUN_KITE_CHANCE` (Sunny bold, Doc timid, in `NPC_PROFILES`; a map NPC may
 add `faction`/`temperament`/`nerve`). Gunshots: aggressive creatures (geckos, ghouls) come from afar, territorial ones
 (radroach) only if the shot is within their awareness. Fleeing uses an escape map (`fleeStep`) so runners go round walls.
+Sound ranges (cells, walls don't muffle): gunshot 22, scream 18, shout 24. A hunter hearing a shot from beyond 2.5x its
+awareness can't hunt by itself yet, so it walks to where the shot was (`investigate`) and notices the player on arrival.
 Step 3 will move `state.standing` (reputation) when leaders are killed.
 
 Step 1 as built: `engine/Sound.ts` (`emitSound`, `provoke`), `provoked` / `investigate` on creatures,

@@ -143,8 +143,16 @@ describe('gunshots draw hunters, not territorial creatures', () => {
     return { hunter, guard, nearGuard };
   }
 
-  it('an aggressive creature comes from afar', () => {
-    expect(shotArena().hunter.alerted).toBe(true);
+  it('an aggressive creature comes from afar: too far to hunt yet, it walks to the shot and notices on arrival', () => {
+    const { hunter } = shotArena();
+    expect(hunter.alerted).toBe(false);
+    expect(hunter.investigate).toEqual({ x: 0, y: 0 });
+
+    const a = buildArena({ width: 30, height: 4, player: { x: 0, y: 0 }, monsters: [hunter] });
+    for (let i = 0; i < 16; i++) tick(a);
+    expect(hunter.x).toBeLessThan(GUN_NOISE_RADIUS - 1 - 8);
+    expect(hunter.alerted).toBe(true);
+    expect(hunter.investigate).toBeNull();
   });
 
   it('a territorial one ignores a shot beyond its awareness but reacts to one on its patch', () => {

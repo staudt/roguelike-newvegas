@@ -370,8 +370,11 @@ describe('gunshot noise', () => {
     });
     fireGun(a.state, 'S', a.events, ALWAYS_HIT);
     expect(near.alerted).toBe(true);
-    expect(edge.alerted).toBe(true);
+    // At the edge it is too far to hunt by itself (beyond 2.5x awareness): it heads for the shot instead.
+    expect(edge.alerted).toBe(false);
+    expect(edge.investigate).toEqual({ x: 0, y: 0 });
     expect(beyond.alerted).toBe(false);
+    expect(beyond.investigate).toBeNull();
     expect(peaceful.alerted).toBe(false);
     expect(peaceful.hostile).toBe(false);
     expect(sunny.alerted).toBe(false);

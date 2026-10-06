@@ -1,6 +1,7 @@
 import {
   GUN_NOISE_RADIUS,
   GUNSHOT_CURIOSITY_CHANCE,
+  LOSE_TRACK_FACTOR,
   SCREAM_NOISE_RADIUS,
   SHOUT_NOISE_RADIUS,
 } from '../config/constants';
@@ -14,7 +15,7 @@ import { addMessage, getActiveSpace, type GameState } from './GameState';
 /**
  * What a noise is. Each kind has a radius (Chebyshev cells) and says who it draws:
  * - `gunshot`: every hostile within range (a territorial one only if the shot is within its awareness)
- *   knows where the trouble is. Peaceful people only
+ *   comes: near ones hunt the player, far ones walk to where the shot was and notice on arrival. Peaceful people only
  *   sometimes go to see (GUNSHOT_CURIOSITY_CHANCE) and pass nothing on: a shot alone is no alarm.
  * - `scream`: a pained cry. Peaceful people in range are alerted at once and rush to the source;
  *   each passes the alarm on once with a shout, so it spreads through a settlement.
@@ -57,7 +58,11 @@ export function emitSound(
       if (kind === 'gunshot') {
         if (c.hostile) {
           // Hunters come to a shot from far off; a territorial creature only cares about its own patch.
-          if (c.temperament !== 'territorial' || chebyshevDistance(c, from) <= c.awareness) c.alerted = true;
+          const distance = chebyshevDistance(c, from);
+          if (c.temperament === 'territorial' && distance > c.awareness) continue;
+          // Close enough to keep hunting by itself: alerted. Further off it only knows where the shot was.
+          if (distance <= c.awareness * LOSE_TRACK_FACTOR) c.alerted = true;
+          else if (!c.alerted) c.investigate = { x: goal.x, y: goal.y };
         } else if (c.kind === 'npc' && !c.investigate && rng && randomInt(rng, 1, 100) <= GUNSHOT_CURIOSITY_CHANCE) {
           c.investigate = { x: goal.x, y: goal.y };
         }

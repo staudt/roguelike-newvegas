@@ -164,9 +164,13 @@ function actAsHostile(
   const distance = chebyshevDistance(here, state.player);
 
   if (!creature.alerted) {
-    if (distance > creature.awareness) return;
-    if (!hasLineOfSight(space.grid, here, state.player)) return;
+    if (distance > creature.awareness || !hasLineOfSight(space.grid, here, state.player)) {
+      // Not noticed anyone, but a noise may be worth a look.
+      if (creature.investigate) investigateNoise(state, creature, occupancy);
+      return;
+    }
     creature.alerted = true;
+    creature.investigate = null;
   } else if (distance > creature.awareness * LOSE_TRACK_FACTOR) {
     creature.alerted = false;
     return;
