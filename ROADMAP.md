@@ -46,6 +46,29 @@ ammo and what you wield; red/amber shot tracers. Editor: ground-item mode and NP
 
 ## Planned (in order) — and how each fits the current code
 
+### M3.5 — Gun refinements (designer notes, not started)
+The current model (src/combat/CombatFormulas.ts, `ShotAccuracy` in src/items/ItemData.ts) has one hit-chance
+curve per gun plus a torso bias that grows with distance. Refine it so each gun has **optimal ranges per
+aim zone** instead of one curve, with the chance of hitting a *location* shaped by distance:
+- **Range bands, per gun** (the 9mm pistol as the first example; all numbers are tuning, to be balanced
+  later):
+  - **1-2 squares:** high chance to hit, and the hit is most likely the **torso** (too close to place a
+    deliberate shot).
+  - **3-4 squares:** the **optimal band for targeted shots** — good accuracy *and* the best odds of the
+    head or an opportunistic limb (the gun's aim spread is widest here, not at point-blank).
+  - **5-6 squares:** still good accuracy but the hit is **likely the torso**.
+  - **Beyond that:** the chance to hit drops with distance.
+  - These are *tendencies, not rules*: any location can still be hit at any range, just with different odds.
+  Implementation sketch: replace the single `aimSpread` factor with a per-gun table of location weights
+  per distance band (e.g. `bands: [{ upTo: 2, accuracy, hitProfile }, ...]`, interpolated between bands) so a
+  shotgun or rifle can have a different shape. Keep it data-driven in the item definition.
+- **Being surrounded hurts ranged accuracy.** Each hostile adjacent to the shooter (and recently-struck
+  state) imposes a to-hit penalty on shots at range — you can't aim calmly with someone on you.
+  Sketch: `crowdPenalty = k * (adjacent hostiles)` applied to gun shots only (melee unaffected), with a
+  cap, plus a narration hint when it applies ("You are too hemmed in to aim."). Creatures that shoot get
+  the same penalty, so a gunman with the player in his face is less accurate at range too.
+- Later, with VATS: choosing a location should be strongest in the optimal band and costly outside it.
+
 ### M4 — Alignment, factions, temperament
 - Replace the single `hostile` boolean with: `faction` (Goodsprings, Powder Gangers, NCR, wildlife…),
   a faction relations table, per-faction reputation for the player, and a monster/NPC
