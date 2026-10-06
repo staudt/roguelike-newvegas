@@ -13,6 +13,15 @@
       "x": 38,
       "y": 7,
       "fg": "#9fd68c",
+      "inventory": [
+        "9mm-pistol",
+        {
+          "defId": "9mm-round",
+          "count": 12
+        }
+      ],
+      "wield": "9mm-pistol",
+      "ready": "9mm-round",
       "dialogue": [
         "Careful out past the signpost — geckos have been getting bold again. If you're sticking around, I could use a hand with that.",
         "Best shot in Goodsprings, and that's not just me saying it. Doc Mitchell can vouch — he's the one who patched up what the geckos left behind."
@@ -34,6 +43,7 @@
           "count": 8
         }
       ],
+      "wield": "9mm-pistol",
       "ready": "9mm-round"
     },
     {
@@ -65,14 +75,19 @@
       "inventory": [
         "stimpak",
         "stimpak",
-        "stimpak"
-      ]
+        "stimpak",
+        "combat-knife"
+      ],
+      "wield": "combat-knife"
     },
     {
       "id": "npc-1",
       "name": "New NPC",
       "x": 36,
       "y": 20,
+      "inventory": [
+        "combat-knife"
+      ],
       "dialogue": [
         ""
       ]
