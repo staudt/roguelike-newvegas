@@ -1,3 +1,5 @@
+import { groupMessages, type MessageGroup } from './messageGroups';
+
 /** Renders the scrolling message log as plain DOM — only the map glyph grid is canvas. */
 export class MessageLog {
   private readonly el: HTMLElement;
@@ -6,8 +8,8 @@ export class MessageLog {
     this.el = el;
   }
 
-  render(messages: readonly string[]): void {
-    const recent = messages.slice(-50);
+  render(messages: readonly string[], groups: readonly MessageGroup[] = []): void {
+    const recent = groupMessages(messages, groups).slice(-50);
     this.el.innerHTML = '';
     for (const text of recent) {
       const line = document.createElement('div');

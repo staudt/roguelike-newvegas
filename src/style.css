@@ -209,3 +209,9 @@ body {
 #menu-overlay .menu-option.disabled.selected {
   color: #7a8f6e;
 }
+
+#menu-overlay .menu-separator {
+  height: 0;
+  margin: 3px 0;
+  border-top: 1px solid #2b3a1e;
+}

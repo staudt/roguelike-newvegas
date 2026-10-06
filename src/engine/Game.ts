@@ -5,6 +5,7 @@ import { INTERACTION_LABELS, type Npc } from '../entities/Npc';
 import { createPlayer } from '../entities/Player';
 import { InputManager } from '../input/InputManager';
 import { addToStack, createItem, isUndroppable, itemLabel, type Item } from '../items/Item';
+import { readiedAmmoCount, wieldedGun } from '../items/Carrying';
 import { isWieldable, itemDef } from '../items/ItemData';
 import type { Direction } from '../utils/geometry';
 import type { ChunkJSON } from '../world/ChunkCodec';
@@ -13,7 +14,9 @@ import type { ChunkedMap } from '../world/ChunkedMap';
 import { isWorldMeta, loadSpace, loadWorld, type SpaceJSON, type WorldMetaJSON } from '../world/MapLoader';
 import { inventoryLetter, inventoryLines, itemTags, orderedInventory } from '../ui/itemLists';
 import { Menu, type MenuAnchor, type MenuOption, type PanelLine } from '../ui/Menu';
+import { buildCommandList, type CommandRow } from '../ui/commandMenu';
 import { MessageLog } from '../ui/MessageLog';
+import type { MessageGroup } from '../ui/messageGroups';
 import { PALETTE } from '../config/palette';
 import { Renderer } from '../ui/Renderer';
 import { limbShortName, StatusBar } from '../ui/StatusBar';
@@ -135,29 +138,6 @@ const HELP_LINES: PanelLine[] = [
   { text: 'Esc           cancel a prompt or close a window' },
 ];
 
-interface Command {
-  label: string;
-  key: string;
-  /** Not implemented yet: shown greyed out, picking it only logs a line. */
-  disabled?: boolean;
-}
-
-/** The Enter menu. Picking a row runs exactly what pressing its key would. */
-const COMMANDS: Command[] = [
-  { label: 'Wield', key: 'w' },
-  { label: 'Pick up', key: ',' },
-  { label: 'Drop', key: 'd' },
-  { label: 'Fire', key: 'f' },
-  { label: 'Ready ammo', key: 'Q' },
-  { label: 'Quaff / use', key: 'q' },
-  { label: 'Inventory', key: 'i' },
-  { label: 'Character sheet', key: 'C' },
-  { label: 'Fight in a direction', key: 'F' },
-  { label: 'Wait', key: '.' },
-  { label: 'Help', key: '?' },
-  { label: 'Wear', key: 'W', disabled: true },
-];
-
 /**
  * Top-level orchestrator: owns the GameState and every long-lived service (renderer, input,
  * message log, status bar, menu overlay), and is the only place that wires them together. The
@@ -182,6 +162,9 @@ export class Game {
   /** Bumped by restart; a tracer timer from an older generation does nothing. */
   private animationToken = 0;
   private lastShotEvent: ShotEvent | null = null;
+  /** Message ranges per player input, so one action reads as one log line. UI-only. */
+  private messageGroups: MessageGroup[] = [];
+  private inputDepth = 0;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -193,6 +176,7 @@ export class Game {
     this.messageLog = new MessageLog(messageLogEl);
     this.statusBar = new StatusBar(statusBarEl);
     this.menu = new Menu(menuEl);
+    this.menu.wrapPick = (run) => this.groupInput(run);
 
     this.state = this.buildState();
     this.bindEvents();
@@ -261,6 +245,7 @@ export class Game {
     this.menu.hide();
     this.cancelAnimations();
     this.state = this.buildState();
+    this.messageGroups = [];
     this.bindEvents();
     this.mode = { kind: 'normal' };
     await this.loadInitialChunks();
@@ -313,7 +298,39 @@ export class Game {
     };
   }
 
+  /**
+   * Runs one player input and records the messages it caused as one log group. Re-entrant: only the
+   * outermost call records. A restart inside the input swaps the state, so nothing is recorded then.
+   */
+  private groupInput(run: () => void): void {
+    if (this.inputDepth > 0) {
+      run();
+      return;
+    }
+    const state = this.state;
+    const from = state.messageLog.length;
+    this.inputDepth++;
+    try {
+      run();
+    } finally {
+      this.inputDepth--;
+      if (this.state === state && state.messageLog.length > from) {
+        this.messageGroups.push({ from, to: state.messageLog.length });
+        // The input's own render ran before the group existed; redraw the log with it.
+        this.messageLog.render(state.messageLog, this.messageGroups);
+      }
+    }
+  }
+
   private handleDirection(direction: Direction): void {
+    this.groupInput(() => this.handleDirectionNow(direction));
+  }
+
+  private handleKey(key: string): void {
+    this.groupInput(() => this.handleKeyNow(key));
+  }
+
+  private handleDirectionNow(direction: Direction): void {
     const mode = this.mode;
     switch (mode.kind) {
       case 'normal':
@@ -336,7 +353,7 @@ export class Game {
     this.render();
   }
 
-  private handleKey(key: string): void {
+  private handleKeyNow(key: string): void {
     const mode = this.mode;
     switch (mode.kind) {
       case 'normal':
@@ -466,23 +483,56 @@ export class Game {
     this.setMode({ kind: 'confirm', target });
   }
 
+  private commandRows(): CommandRow[] {
+    const p = this.state.player;
+    const gun = wieldedGun(p);
+    const stacks = p.inventory.filter((i) => itemDef(i.defId).kind === 'ammo');
+    return buildCommandList({
+      itemsHere: groundItemsAt(this.state, p.x, p.y).length,
+      gunWielded: gun !== null,
+      readiedAmmo: readiedAmmoCount(p),
+      ammoInPack: gun
+        ? stacks.filter((i) => {
+            const def = itemDef(i.defId);
+            return def.kind === 'ammo' && def.ammoType === gun.ammoType;
+          }).length
+        : 0,
+      hurt: p.hp < p.maxHp,
+      consumables: p.inventory.filter((i) => itemDef(i.defId).kind === 'consumable').length,
+      droppable: p.inventory.filter((i) => !isUndroppable(i)).length,
+    });
+  }
+
   private openCommandMenu(): void {
-    const options: MenuOption[] = COMMANDS.map((c) => ({
-      label: c.label,
-      hotkey: c.key,
-      keyHint: c.key,
-      disabled: c.disabled,
-      hint: c.disabled ? '(not yet)' : undefined,
-    }));
+    const rows = this.commandRows();
+    // A divider between the contextual group and the standard list, when both exist. `entries`
+    // maps each menu index back to its row (undefined for the divider).
+    const entries: Array<CommandRow | undefined> = [];
+    const options: MenuOption[] = [];
+    const hasContext = rows.some((r) => r.group === 'context');
+    rows.forEach((c, i) => {
+      if (hasContext && c.group === 'standard' && rows[i - 1]?.group === 'context') {
+        entries.push(undefined);
+        options.push({ label: '', separator: true });
+      }
+      entries.push(c);
+      options.push({
+        label: c.label,
+        hotkey: c.key,
+        keyHint: c.key,
+        disabled: c.disabled,
+        hint: c.disabled ? '(not yet)' : undefined,
+      });
+    });
     this.menu.open(
       'Commands',
       options,
       (index) => {
         this.closeMenu();
-        this.handleNormalKey(COMMANDS[index]!.key);
+        this.handleNormalKey(entries[index]!.key);
         this.render();
       },
-      -1,
+      hasContext ? 0 : -1,
       'Key or Up/Down + Enter, Esc/Enter closes',
       this.anchorTo(this.state.player),
     );
@@ -649,7 +699,7 @@ export class Game {
     if (this.state.gameOver && this.mode.kind !== 'game-over') this.showDeathScreen();
     this.renderer.render(this.state);
     this.streamChunks();
-    this.messageLog.render(this.state.messageLog);
+    this.messageLog.render(this.state.messageLog, this.messageGroups);
     this.statusBar.render(this.state, this.promptText());
     this.menu.reposition();
     this.playQueuedShots();

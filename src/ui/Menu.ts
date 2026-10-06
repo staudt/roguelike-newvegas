@@ -17,6 +17,8 @@ export interface MenuOption {
   keyHint?: string;
   /** Greyed out; still pickable (the caller explains why nothing happens). */
   disabled?: boolean;
+  /** A thin non-selectable divider row (skipped by the cursor, hotkeys and clicks). */
+  separator?: boolean;
 }
 
 /** Where an action menu belongs, in px relative to the overlay's positioning parent. */
@@ -131,17 +133,17 @@ export class Menu {
     if (key === 'Escape') return 'cancel';
     if (count === 0) return 'none';
     if (key === 'ArrowUp') {
-      this.selected = this.selected < 0 ? count - 1 : (this.selected + count - 1) % count;
+      this.selected = this.step(this.selected < 0 ? 0 : this.selected, -1);
       this.redraw();
       return 'none';
     }
     if (key === 'ArrowDown') {
-      this.selected = (this.selected + 1) % count;
+      this.selected = this.step(this.selected, 1);
       this.redraw();
       return 'none';
     }
     if (key === 'Enter') return this.selected < 0 ? 'cancel' : this.pick(this.selected);
-    const index = this.options.findIndex((o) => o.hotkey === key);
+    const index = this.options.findIndex((o) => !o.separator && o.hotkey === key);
     if (index >= 0) {
       this.selected = index;
       return this.pick(index);
@@ -149,8 +151,23 @@ export class Menu {
     return 'none';
   }
 
+  /** Next selectable row from `from` in direction `dir`, wrapping and skipping dividers. */
+  private step(from: number, dir: 1 | -1): number {
+    const count = this.options.length;
+    let i = from;
+    for (let n = 0; n < count; n++) {
+      i = (i + dir + count) % count;
+      if (!this.options[i]!.separator) return i;
+    }
+    return from;
+  }
+
+  /** Set by the owner to wrap every pick (keys and clicks alike) in its own bookkeeping. */
+  wrapPick: (run: () => void) => void = (run) => run();
+
   private pick(index: number): MenuResult {
-    this.onPick?.(index);
+    const onPick = this.onPick;
+    if (onPick) this.wrapPick(() => onPick(index));
     return 'pick';
   }
 
@@ -163,6 +180,10 @@ export class Menu {
     this.el.innerHTML = '';
     this.addDiv('menu-title', this.titleText);
     this.options.forEach((option, i) => {
+      if (option.separator) {
+        this.addDiv('menu-separator', '');
+        return;
+      }
       const cls = `menu-line menu-option${i === this.selected ? ' selected' : ''}${option.disabled ? ' disabled' : ''}`;
       const row = this.addDiv(cls, '');
       const key = option.hotkey && !option.keyHint ? (option.hotkey === '-' ? '- ' : `${option.hotkey} - `) : '';
