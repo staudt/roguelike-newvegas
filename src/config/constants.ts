@@ -9,6 +9,9 @@ export const BASE_FONT_SIZE = 20;
  * A monospace stack that renders box-drawing and block-fill characters (─ │ ░ ▒ ▓ █) with
  * consistent full-cell advance widths across platforms, falling back gracefully.
  */
+/** Cell height as a multiple of the font size. Shared with the map editor so it matches the game. */
+export const LINE_HEIGHT_RATIO = 1.2;
+
 export const FONT_FAMILY = '"Cascadia Mono", "DejaVu Sans Mono", Consolas, monospace';
 
 /**

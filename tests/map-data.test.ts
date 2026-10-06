@@ -124,7 +124,7 @@ describe('worldMap.json monsters', () => {
   it('places the expected wildlife', () => {
     const counts: Record<string, number> = {};
     for (const m of space.monsters) counts[m.defId] = (counts[m.defId] ?? 0) + 1;
-    expect(counts).toEqual({ gecko: 2, bloatfly: 1, radroach: 1, brahmin: 1 });
+    expect(counts).toEqual({ gecko: 2, bloatfly: 1, radroach: 2, brahmin: 1 });
   });
 
   it('every monster stands on a walkable, non-door tile reachable from playerStart (real canStep rule)', () => {

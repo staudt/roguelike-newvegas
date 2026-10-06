@@ -1,4 +1,4 @@
-import { BASE_FONT_SIZE, FONT_FAMILY } from '../config/constants';
+import { BASE_FONT_SIZE, FONT_FAMILY, LINE_HEIGHT_RATIO } from '../config/constants';
 import { PALETTE } from '../config/palette';
 import type { GameState, Space } from '../engine/GameState';
 import { getActiveSpace, worldToLocal } from '../engine/GameState';
@@ -8,9 +8,6 @@ import { visualFor } from '../world/Tile';
 import { drawBalloon } from './Balloon';
 import { Camera } from './Camera';
 import { isConnectedWall, wallGlyph } from './WallGlyphs';
-
-/** Standard terminal line-height ratio — taller than wide, deliberately not forced to square. */
-const LINE_HEIGHT_RATIO = 1.2;
 
 export class Renderer {
   readonly camera = new Camera();

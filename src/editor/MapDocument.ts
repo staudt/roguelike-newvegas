@@ -229,6 +229,19 @@ export class MapDocument {
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) this.paintTile(x, y, tileId);
   }
 
+  /** Just the outline of a rectangle between two corners — the shape of a building's walls. */
+  boxTile(from: Point, to: Point, tileId: string): void {
+    const x0 = Math.min(from.x, to.x);
+    const x1 = Math.max(from.x, to.x);
+    const y0 = Math.min(from.y, to.y);
+    const y1 = Math.max(from.y, to.y);
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        if (x === x0 || x === x1 || y === y0 || y === y1) this.paintTile(x, y, tileId);
+      }
+    }
+  }
+
   /** Flood fill, 4-connected. */
   fillTile(from: Point, tileId: string): void {
     const target = this.tileAt(from.x, from.y);

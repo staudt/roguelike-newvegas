@@ -1,3 +1,4 @@
+import { FONT_FAMILY, LINE_HEIGHT_RATIO } from '../config/constants';
 import { GROUND_LEVELS, MAX_GROUND_HEIGHT, PALETTE } from '../config/palette';
 import { isConnectedWall, wallGlyph } from '../ui/WallGlyphs';
 import { linePoints, type Point } from '../utils/geometry';
@@ -25,7 +26,7 @@ const DEFAULT_CELL = 22;
 const ZOOM_STEPS = [10, 14, 18, 22, 28, 36];
 
 type Mode = 'tile' | 'height' | 'npc' | 'monster' | 'transition';
-type TileTool = 'pencil' | 'line' | 'rect' | 'fill' | 'pick';
+type TileTool = 'pencil' | 'line' | 'rect' | 'box' | 'fill' | 'pick';
 type HeightTool = 'raise' | 'lower' | 'set';
 
 const PAINTABLE_TILES = ['ground', 'rock', 'wall', 'door', 'floor'] as const;
@@ -60,7 +61,11 @@ async function boot(): Promise<void> {
 
   let currentFile: MapFile = 'worldMap.json';
   let doc: MapDocument | null = null;
+  /** Cell height in px (the zoom step). Width follows from the font so cells match the game. */
   let cell = DEFAULT_CELL;
+  let cellW = DEFAULT_CELL;
+  /** Where the mouse is during a line/rect/box drag, for the live outline. */
+  let previewTo: Point | null = null;
   let dirty = false;
 
   let mode: Mode = 'tile';
@@ -124,9 +129,15 @@ async function boot(): Promise<void> {
   function setZoom(next: number): void {
     if (!doc) return;
     cell = next;
-    canvas.width = doc.width * cell;
+    // Same proportions as the game: cell height = font size * LINE_HEIGHT_RATIO, cell width = the
+    // font's real advance width. (Setting canvas size resets the context, so the font goes after.)
+    const fontSize = Math.max(6, Math.round(cell / LINE_HEIGHT_RATIO));
+    const fontSpec = `${fontSize}px ${FONT_FAMILY}`;
+    ctx.font = fontSpec;
+    cellW = Math.max(1, Math.ceil(ctx.measureText('M').width));
+    canvas.width = doc.width * cellW;
     canvas.height = doc.height * cell;
-    ctx.font = `${Math.round(cell * 0.72)}px "Cascadia Mono", "DejaVu Sans Mono", Consolas, monospace`;
+    ctx.font = fontSpec;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     root.querySelector('#zoom')!.textContent = `${cell}px`;
@@ -144,12 +155,12 @@ async function boot(): Promise<void> {
         const tileId = doc.tileAt(x, y);
         const visual = visualFor(tileId, doc.heightAt(x, y));
         const glyph = isConnectedWall(tileId) ? wallGlyph(grid, x, y) : visual.glyph;
-        const px = x * cell;
+        const px = x * cellW;
         const py = y * cell;
         ctx.fillStyle = visual.bg;
-        ctx.fillRect(px, py, cell, cell);
+        ctx.fillRect(px, py, cellW, cell);
         ctx.fillStyle = visual.fg;
-        ctx.fillText(glyph, px + cell / 2, py + cell / 2);
+        ctx.fillText(glyph, px + cellW / 2, py + cell / 2);
       }
     }
 
@@ -168,6 +179,38 @@ async function boot(): Promise<void> {
     if (doc.playerStart) {
       drawMarker(doc.playerStart.x, doc.playerStart.y, '@', PALETTE.playerFg, false);
     }
+
+    drawShapePreview();
+  }
+
+  /** Live outline of the line/rect/box being dragged, so you can see it before letting go. */
+  function drawShapePreview(): void {
+    if (!doc || !painting || !anchor || !previewTo) return;
+    if (mode !== 'tile' || (tileTool !== 'line' && tileTool !== 'rect' && tileTool !== 'box')) return;
+
+    const ghost = new MapDocument(doc.toJSON());
+    if (tileTool === 'line') ghost.lineTile(anchor, previewTo, brushTile);
+    if (tileTool === 'rect') ghost.rectTile(anchor, previewTo, brushTile);
+    if (tileTool === 'box') ghost.boxTile(anchor, previewTo, brushTile);
+
+    ctx.save();
+    ctx.globalAlpha = 0.75;
+    const ghostGrid = ghost.toGrid();
+    for (let y = 0; y < ghost.height; y++) {
+      for (let x = 0; x < ghost.width; x++) {
+        if (ghost.tileAt(x, y) === doc.tileAt(x, y)) continue;
+        const tileId = ghost.tileAt(x, y);
+        const visual = visualFor(tileId, ghost.heightAt(x, y));
+        const glyph = isConnectedWall(tileId) ? wallGlyph(ghostGrid, x, y) : visual.glyph;
+        ctx.fillStyle = visual.bg;
+        ctx.fillRect(x * cellW, y * cell, cellW, cell);
+        ctx.fillStyle = visual.fg;
+        ctx.fillText(glyph, x * cellW + cellW / 2, y * cell + cell / 2);
+        ctx.strokeStyle = PALETTE.uiGreen;
+        ctx.strokeRect(x * cellW + 0.5, y * cell + 0.5, cellW - 1, cell - 1);
+      }
+    }
+    ctx.restore();
   }
 
   /** Thin red ring marking a hostile monster (the selection box is a square, so the two read differently). */
@@ -179,7 +222,7 @@ async function boot(): Promise<void> {
     ctx.globalAlpha = 0.8;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.arc(x * cell + cell / 2, y * cell + cell / 2, cell / 2 - 1, 0, Math.PI * 2);
+    ctx.ellipse(x * cellW + cellW / 2, y * cell + cell / 2, cellW / 2 - 1, cell / 2 - 1, 0, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
   }
@@ -188,15 +231,15 @@ async function boot(): Promise<void> {
   function drawMarker(wx: number, wy: number, glyph: string, fg: string, selected: boolean): void {
     const x = wx - (doc?.worldOrigin.x ?? 0);
     const y = wy - (doc?.worldOrigin.y ?? 0);
-    const px = x * cell;
+    const px = x * cellW;
     const py = y * cell;
     ctx.fillStyle = fg;
-    ctx.fillText(glyph, px + cell / 2, py + cell / 2);
+    ctx.fillText(glyph, px + cellW / 2, py + cell / 2);
     if (selected) {
       ctx.save();
       ctx.strokeStyle = PALETTE.hostileRing;
       ctx.lineWidth = 2;
-      ctx.strokeRect(px + 1, py + 1, cell - 2, cell - 2);
+      ctx.strokeRect(px + 1, py + 1, cellW - 2, cell - 2);
       ctx.restore();
     }
   }
@@ -246,7 +289,13 @@ async function boot(): Promise<void> {
   }
 
   function handleTileMouseMove(at: Point): void {
-    if (!doc || !painting || !anchor || tileTool !== 'pencil') return;
+    if (!doc || !painting || !anchor) return;
+    if (tileTool === 'line' || tileTool === 'rect' || tileTool === 'box') {
+      previewTo = at;
+      redraw();
+      return;
+    }
+    if (tileTool !== 'pencil') return;
     doc.lineTile(anchor, at, brushTile);
     anchor = at;
     redraw();
@@ -257,6 +306,8 @@ async function boot(): Promise<void> {
     if (!doc || !painting || !anchor) return;
     if (tileTool === 'line') doc.lineTile(anchor, at, brushTile);
     if (tileTool === 'rect') doc.rectTile(anchor, at, brushTile);
+    if (tileTool === 'box') doc.boxTile(anchor, at, brushTile);
+    previewTo = null;
     redraw();
     markDirty();
   }
@@ -411,6 +462,7 @@ async function boot(): Promise<void> {
     if (doc && mode === 'tile') handleTileMouseUp(cellAt(event));
     painting = false;
     anchor = null;
+    previewTo = null;
   });
 
   window.addEventListener('keydown', (event) => {
@@ -503,6 +555,7 @@ async function boot(): Promise<void> {
       { id: 'pencil', label: 'Pencil' },
       { id: 'line', label: 'Line' },
       { id: 'rect', label: 'Rect' },
+      { id: 'box', label: 'Box' },
       { id: 'fill', label: 'Fill' },
       { id: 'pick', label: 'Pick' },
     ];
@@ -911,7 +964,7 @@ const STYLE = `
   button { cursor: pointer; }
   button.on { background: ${PALETTE.uiGreen}; border-color: ${PALETTE.uiGreen}; color: #06250f; }
   button.danger { border-color: ${PALETTE.uiDanger}; color: ${PALETTE.uiDanger}; margin-top: 8px; }
-  .tools { display: flex; gap: 4px; }
+  .tools { display: flex; flex-wrap: wrap; gap: 4px; }
   #status { color: ${PALETTE.uiDim}; min-width: 140px; }
   #load-error { padding: 6px 12px; }
   #load-error.bad { background: #3a1616; color: #ffb4b4; border-bottom: 1px solid ${PALETTE.uiBorder}; }

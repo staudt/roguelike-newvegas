@@ -1795,12 +1795,12 @@
     0,
     0,
     0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
     0,
     0,
     0,
@@ -1829,12 +1829,12 @@
     0,
     0,
     0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
     0,
     0,
     0,
@@ -1939,22 +1939,6 @@
       ]
     }
   ],
-  "transitions": [
-    {
-      "x": 16,
-      "y": 12,
-      "toSpace": "prospector-saloon"
-    },
-    {
-      "x": 23,
-      "y": 6,
-      "toSpace": "doc-mitchells-house"
-    }
-  ],
-  "playerStart": {
-    "x": 18,
-    "y": 24
-  },
   "monsters": [
     {
       "defId": "gecko",
@@ -1980,6 +1964,27 @@
       "defId": "brahmin",
       "x": 20,
       "y": 22
+    },
+    {
+      "defId": "radroach",
+      "x": 23,
+      "y": 2
     }
-  ]
+  ],
+  "transitions": [
+    {
+      "x": 16,
+      "y": 12,
+      "toSpace": "prospector-saloon"
+    },
+    {
+      "x": 23,
+      "y": 6,
+      "toSpace": "doc-mitchells-house"
+    }
+  ],
+  "playerStart": {
+    "x": 18,
+    "y": 24
+  }
 }
