@@ -77,3 +77,82 @@ export function nextStepToward(
 
   return null;
 }
+
+/** Budget for the escape map: wide enough to see round a building, small enough to run per fleeing creature. */
+const FLEE_NODE_BUDGET = 1500;
+/** How much farther than 'merely far' a long way round counts. >1 lets runners trade a step toward the threat for an exit. */
+const FLEE_DISTANCE_WEIGHT = 1.2;
+const FLEE_RELAX_PASSES = 40;
+
+/**
+ * One step for a creature running from `threat`, using an escape map (the classic roguelike
+ * 'safety map'): walk distances out from the threat, scale them by -1.2, then relax so every cell
+ * also counts the cost of getting to somewhere safer. Walking downhill on that map goes round
+ * obstacles to real distance instead of sticking to a wall, and will pass a little closer to the
+ * threat to reach an exit rather than hide in a dead end. Returns null when no neighbour is any
+ * safer (cornered). Cells the search never reached (behind a closed door, far off) count as safest.
+ */
+export function fleeStep(
+  grid: MapGrid,
+  from: Point,
+  threat: Point,
+  blocked: (x: number, y: number) => boolean,
+  budget: number = FLEE_NODE_BUDGET,
+): Point | null {
+  const dist = new Map<number, number>();
+  const cells: Point[] = [threat];
+  dist.set(cellKey(threat.x, threat.y), 0);
+  let maxDist = 0;
+  for (let head = 0; head < cells.length && head < budget; head++) {
+    const current = cells[head]!;
+    const d = dist.get(cellKey(current.x, current.y))!;
+    for (const v of NEIGHBOURS) {
+      const next = { x: current.x + v.x, y: current.y + v.y };
+      const key = cellKey(next.x, next.y);
+      if (dist.has(key) || !canStep(grid, current, next)) continue;
+      dist.set(key, d + 1);
+      if (d + 1 > maxDist) maxDist = d + 1;
+      cells.push(next);
+    }
+  }
+
+  const safety = new Map<number, number>();
+  for (const c of cells) {
+    const key = cellKey(c.x, c.y);
+    safety.set(key, -FLEE_DISTANCE_WEIGHT * dist.get(key)!);
+  }
+  const unseen = -FLEE_DISTANCE_WEIGHT * (maxDist + 1);
+  const valueAt = (p: Point): number => safety.get(cellKey(p.x, p.y)) ?? unseen;
+
+  for (let pass = 0; pass < FLEE_RELAX_PASSES; pass++) {
+    let changed = false;
+    for (const c of cells) {
+      const key = cellKey(c.x, c.y);
+      let best = safety.get(key)!;
+      for (const v of NEIGHBOURS) {
+        const n = { x: c.x + v.x, y: c.y + v.y };
+        if (!canStep(grid, c, n)) continue;
+        const through = valueAt(n) + 1;
+        if (through < best) best = through;
+      }
+      if (best < safety.get(key)!) {
+        safety.set(key, best);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+
+  let bestStep: Point | null = null;
+  let bestValue = valueAt(from);
+  for (const v of NEIGHBOURS) {
+    const p = { x: from.x + v.x, y: from.y + v.y };
+    if (!canStep(grid, from, p) || blocked(p.x, p.y)) continue;
+    const value = valueAt(p);
+    if (value < bestValue) {
+      bestValue = value;
+      bestStep = p;
+    }
+  }
+  return bestStep;
+}

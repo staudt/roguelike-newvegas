@@ -73,6 +73,17 @@ describe('a provoked person with no weapon', () => {
     expect(chebyshevDistance(doc, a.state.player)).toBeGreaterThan(before);
   });
 
+  it('does not freeze against a wall: it runs round to the opening', () => {
+    const doc = provoked(5, 2);
+    const walls: Array<[number, number]> = [0, 1, 2, 3, 4, 5].map((y) => [6, y]);
+    const a = arena({ width: 20, height: 9, player: { x: 3, y: 2 }, walls }, doc);
+    const start = doc.y;
+    for (let i = 0; i < 14; i++) tick(a, scriptedRNG(Array(40).fill(i === 0 ? 0 : 0.999)));
+    expect(doc.stance).toBe('flee');
+    expect(doc.y).toBeGreaterThan(start + 3); // down toward the gap, not stuck at the wall
+    expect(doc.x).toBeGreaterThanOrEqual(6); // and through it
+  });
+
   it('keeps screaming from time to time while the player is in sight, drawing others', () => {
     const doc = provoked(3, 3);
     const bystander = createNpc('by', 'Trudy', 12, 3, ['hi']);

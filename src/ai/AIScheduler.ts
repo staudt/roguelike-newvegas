@@ -24,7 +24,7 @@ import { hasLineOfSight } from '../fov/LineOfSight';
 import { chebyshevDistance, DIRECTION_VECTORS, type Point } from '../utils/geometry';
 import { randomInt, type RNG } from '../utils/RNG';
 import { canStep, getTileId, setTileId } from '../world/GameMap';
-import { cellKey, nextStepToward } from './Pathfinding';
+import { cellKey, fleeStep, nextStepToward } from './Pathfinding';
 
 const STEP_VECTORS = Object.values(DIRECTION_VECTORS);
 
@@ -211,22 +211,15 @@ function chooseStance(creature: Creature, rng: RNG): 'flee' | 'fight' {
 }
 
 /**
- * One step that puts more distance between `creature` and the player, preferring the straightest
- * way out. Returns false when every neighbouring cell is no farther (cornered, or boxed in).
+ * One step toward safety from the player (see `fleeStep`). Returns false when every neighbouring
+ * cell is no safer: cornered, or boxed in by other creatures.
  */
 function stepAway(state: GameState, creature: Creature, occupancy: Occupancy): boolean {
-  const grid = getActiveSpace(state).grid;
-  const far = (p: Point): number => chebyshevDistance(p, state.player);
-  const sq = (p: Point): number => (p.x - state.player.x) ** 2 + (p.y - state.player.y) ** 2;
-  let best: Point | null = null;
-  for (const v of STEP_VECTORS) {
-    const p = { x: creature.x + v.x, y: creature.y + v.y };
-    if (!canStep(grid, creature, p) || isOccupied(state, occupancy, p.x, p.y)) continue;
-    if (far(p) <= far(creature)) continue;
-    if (!best || far(p) > far(best) || (far(p) === far(best) && sq(p) > sq(best))) best = p;
-  }
-  if (!best) return false;
-  moveTo(occupancy, creature, best.x, best.y);
+  const step = fleeStep(getActiveSpace(state).grid, creature, state.player, (x, y) =>
+    isOccupied(state, occupancy, x, y),
+  );
+  if (!step) return false;
+  moveTo(occupancy, creature, step.x, step.y);
   return true;
 }
 
