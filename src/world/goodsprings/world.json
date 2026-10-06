@@ -10,8 +10,8 @@
     {
       "id": "sunny-smiles",
       "name": "Sunny Smiles",
-      "x": 18,
-      "y": 8,
+      "x": 38,
+      "y": 7,
       "fg": "#9fd68c",
       "dialogue": [
         "Careful out past the signpost — geckos have been getting bold again. If you're sticking around, I could use a hand with that.",
@@ -21,8 +21,8 @@
     {
       "id": "ringo",
       "name": "Ringo",
-      "x": 22,
-      "y": 19,
+      "x": 3,
+      "y": 6,
       "fg": "#c97b5a",
       "dialogue": [
         "I'm just passing through, same as anybody. Though with those Powder Gangers sniffing around, \"passing through\" might take longer than I'd like."
@@ -39,8 +39,8 @@
     {
       "id": "trudy",
       "name": "Trudy",
-      "x": 13,
-      "y": 12,
+      "x": 35,
+      "y": 6,
       "fg": "#d98a5a",
       "dialogue": [
         "Don't mind the dust, just mind your caps. And if you run into Sunny, tell her the generator's acting up again.",
@@ -50,8 +50,8 @@
     {
       "id": "doc-mitchell",
       "name": "Doc Mitchell",
-      "x": 26,
-      "y": 6,
+      "x": 4,
+      "y": 15,
       "fg": "#8fb0c9",
       "interactions": [
         "talk",
@@ -67,28 +67,22 @@
         "stimpak",
         "stimpak"
       ]
+    },
+    {
+      "id": "npc-1",
+      "name": "New NPC",
+      "x": 36,
+      "y": 20,
+      "dialogue": [
+        ""
+      ]
     }
   ],
   "monsters": [
     {
-      "defId": "gecko",
-      "x": 5,
-      "y": 18
-    },
-    {
-      "defId": "gecko",
-      "x": 6,
-      "y": 21
-    },
-    {
       "defId": "bloatfly",
-      "x": 30,
-      "y": 12
-    },
-    {
-      "defId": "radroach",
-      "x": 4,
-      "y": 5
+      "x": 36,
+      "y": 16
     },
     {
       "defId": "brahmin",
@@ -96,18 +90,18 @@
       "y": 22
     },
     {
-      "defId": "radroach",
-      "x": 23,
-      "y": 2
+      "defId": "ghoul",
+      "x": 24,
+      "y": 14
     }
   ],
   "transitions": [],
   "places": [
     {
-      "name": "Prospector Saloon",
+      "name": "Gas Station",
       "rect": {
-        "x": 11,
-        "y": 10,
+        "x": 0,
+        "y": 4,
         "width": 6,
         "height": 5
       }
@@ -115,10 +109,28 @@
     {
       "name": "Doc Mitchell's House",
       "rect": {
-        "x": 23,
+        "x": 1,
+        "y": 12,
+        "width": 7,
+        "height": 5
+      }
+    },
+    {
+      "name": "General Store",
+      "rect": {
+        "x": 24,
         "y": 4,
         "width": 6,
-        "height": 5
+        "height": 6
+      }
+    },
+    {
+      "name": "Prospector Saloon",
+      "rect": {
+        "x": 32,
+        "y": 3,
+        "width": 9,
+        "height": 7
       }
     }
   ],
