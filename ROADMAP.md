@@ -35,24 +35,16 @@ outlines, Expand (+N/S/E/W, add/remove chunk), void swatch, delta-based undo, sa
 Measured before the refactor: map JSON hit 22 MB at 1024^2 and 88 MB at 2048^2; 20,000 creatures cost
 ~230 ms/turn. Streaming was verified in the real game across several chunk seams.
 
-## Planned (in order) — and how each fits the current code
+## Done — M3: items, loot, guns
+Ground items (`,` pick up with an "All of it" menu, `d` drop), stimpaks (`q`), a 9mm pistol (`w` wield,
+`Q` ready ammo, `f` + direction fires along 8 lines; hills and walls block; a miss flies on to the next
+creature; shots alert nearby hostiles). Undroppable items (the Pip-Boy). Creatures carry items from map
+loadouts, drop them (plus rolled loot) when they die, and use them: a provoked Ringo draws his pistol,
+lines up and shoots back; creatures fight with what they wield and the log names it. Status bar shows
+ammo and what you wield; red/amber shot tracers. Editor: ground-item mode and NPC/monster loadouts.
+483 tests.
 
-### M3 — Items you carry, drop and loot; guns
-- **Ground items + inventory verbs:** `GroundItem` in `Space`, rendered on the map; `,` pick up, `d`
-  drop (both already greyed rows in the Enter menu); creatures drop their inventory when they die.
-- **Creatures carry items:** NPCs/monsters get `inventory: Item[]`, a `wielded` id and a readied
-  ammo stack, from a per-definition loadout (and optional loot table). Their melee profile comes from
-  what they wield via the same `attackProfileFor` the player uses, falling back to natural attacks
-  (teeth) or fists. Today `CreatureStats.attack` is the fallback.
-- **Undroppable items:** `ItemDef.flags` (`undroppable`, `quest`; instances can override). `d` refuses with a
-  message ("You can't let go of the Pip-Boy."), shops won't buy quest items. (Sticky/cursed-style
-  curses are a possible later use of the same flag.)
-- **Guns:** pistol + 9mm ammo; `f` fires only a wielded gun with readied ammunition (a quiver slot),
-  8 directions, cover via `hasLineOfSight`; a shared `fireProjectile` used by the player *and* creatures.
-- **Creatures that use guns:** when hostile and holding a gun with ammo, the AI wields it (costs a
-  turn, like the player), lines itself up on a straight line to you (NetHack monsters do this too), and
-  fires; at melee range it hits with what it holds or switches. So hit Ringo and, if he has a pistol,
-  he draws it and shoots back.
+## Planned (in order) — and how each fits the current code
 
 ### M4 — Alignment, factions, temperament
 - Replace the single `hostile` boolean with: `faction` (Goodsprings, Powder Gangers, NCR, wildlife…),

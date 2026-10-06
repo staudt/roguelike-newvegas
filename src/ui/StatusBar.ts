@@ -1,6 +1,10 @@
 import { limbCondition } from '../combat/Limbs';
 import type { GameState } from '../engine/GameState';
 import { locationName } from '../engine/GameState';
+import { readiedStack, wieldedGun, wieldedItem } from '../items/Carrying';
+import { itemCount } from '../items/Item';
+import { itemDef } from '../items/ItemData';
+import { ammoStatus } from './itemLists';
 
 const DANGER_FRACTION = 0.3;
 
@@ -39,6 +43,17 @@ export class StatusBar {
       const cond = limbCondition(limb);
       if (cond === 'ok') continue;
       this.appendField('', `${limbShortName(limb.name)} ${cond}`, cond === 'crippled' ? 'status-danger' : 'status-warn');
+    }
+    const held = wieldedItem(p);
+    this.appendField('Wielding', held ? itemDef(held.defId).name : 'Hands');
+    if (wieldedGun(p)) {
+      const stack = readiedStack(p);
+      const status = ammoStatus(stack ? itemCount(stack) : null);
+      this.appendField(
+        'Ammo',
+        stack ? String(itemCount(stack)) : '—',
+        status === 'empty' ? 'status-danger' : status === 'low' ? 'status-warn' : '',
+      );
     }
     this.appendField('Location', locationName(state));
     this.appendField('Position', `${p.x},${p.y}`);

@@ -1,14 +1,25 @@
 import { BASE_FONT_SIZE, FONT_FAMILY, LINE_HEIGHT_RATIO } from '../config/constants';
 import { PALETTE } from '../config/palette';
-import type { GameState, Space } from '../engine/GameState';
+import type { GameState, GroundItem, Space } from '../engine/GameState';
 import { getActiveSpace } from '../engine/GameState';
 import { rectContains, type Rect } from '../utils/geometry';
 import { VOID_TILE, tileIdOf, visualFor } from '../world/Tile';
+import { itemDef } from '../items/ItemData';
 import { drawBalloon } from './Balloon';
 import { Camera } from './Camera';
 import { isConnectedWall, wallGlyph } from './WallGlyphs';
 
+/** A transient glyph drawn above everything (a bullet in flight, a hit flash). */
+export interface Tracer {
+  x: number;
+  y: number;
+  glyph: string;
+  fg: string;
+}
+
 export class Renderer {
+  /** Set by the game while a shot animates; drawn last by render(). */
+  tracer: Tracer | null = null;
   readonly camera = new Camera();
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
@@ -109,6 +120,14 @@ export class Renderer {
       }
     }
 
+    for (const g of space.items) {
+      if (!space.visible.has(g.x, g.y)) continue;
+      if (topItemAt(space, g.x, g.y) !== g) continue;
+      const def = itemDef(g.item.defId);
+      const screen = this.camera.worldToScreen(g.x, g.y);
+      this.drawGlyph(screen.x, screen.y, def.glyph, def.fg);
+    }
+
     for (const creature of [...space.npcs, ...space.monsters]) {
       if (!space.visible.has(creature.x, creature.y)) continue;
       const screen = this.camera.worldToScreen(creature.x, creature.y);
@@ -118,6 +137,11 @@ export class Renderer {
 
     const playerScreen = this.camera.worldToScreen(state.player.x, state.player.y);
     this.drawGlyph(playerScreen.x, playerScreen.y, state.player.glyph, state.player.fg);
+
+    if (this.tracer) {
+      const screen = this.camera.worldToScreen(this.tracer.x, this.tracer.y);
+      this.drawGlyph(screen.x, screen.y, this.tracer.glyph, this.tracer.fg);
+    }
 
     for (const balloon of state.balloons) {
       const screen = this.camera.worldToScreen(balloon.x, balloon.y);
@@ -167,4 +191,13 @@ export class Renderer {
     this.ctx.fillStyle = fg;
     this.ctx.fillText(glyph, screenX + this.camera.cellW / 2, screenY + this.camera.cellH / 2);
   }
+}
+
+/** The item drawn for a cell: the last one dropped there. */
+function topItemAt(space: Space, x: number, y: number): GroundItem | undefined {
+  for (let i = space.items.length - 1; i >= 0; i--) {
+    const g = space.items[i]!;
+    if (g.x === x && g.y === y) return g;
+  }
+  return undefined;
 }

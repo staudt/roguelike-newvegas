@@ -31,6 +31,8 @@ export interface PanelLine {
   text: string;
   /** CSS modifier class: 'warn' (hurt), 'danger' (crippled), 'head' (section), 'dim'. */
   cls?: string;
+  /** An item glyph drawn in its own colour before the text. */
+  glyph?: { ch: string; color: string };
 }
 
 export type MenuResult = 'pick' | 'cancel' | 'none';
@@ -101,7 +103,16 @@ export class Menu {
     this.el.className = centered ? 'centered' : '';
     this.el.innerHTML = '';
     this.addDiv('menu-title', title);
-    for (const line of lines) this.addDiv(`menu-line ${line.cls ?? ''}`, line.text);
+    for (const line of lines) {
+      const row = this.addDiv(`menu-line ${line.cls ?? ''}`, line.text);
+      if (line.glyph) {
+        const g = document.createElement('span');
+        g.className = 'menu-glyph';
+        g.textContent = line.glyph.ch;
+        g.style.color = line.glyph.color;
+        row.prepend(g, ' ');
+      }
+    }
     if (footer) this.addDiv('menu-footer', footer);
   }
 

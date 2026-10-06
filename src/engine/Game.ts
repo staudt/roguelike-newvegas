@@ -4,18 +4,22 @@ import { createMonster } from '../entities/Monster';
 import { INTERACTION_LABELS, type Npc } from '../entities/Npc';
 import { createPlayer } from '../entities/Player';
 import { InputManager } from '../input/InputManager';
-import { createItem } from '../items/Item';
-import { itemDef } from '../items/ItemData';
+import { addToStack, createItem, isUndroppable, itemLabel, type Item } from '../items/Item';
+import { isWieldable, itemDef } from '../items/ItemData';
 import type { Direction } from '../utils/geometry';
 import type { ChunkJSON } from '../world/ChunkCodec';
 import { ChunkStreamer, parseChunkPath, type ChunkCoord } from '../world/ChunkStreamer';
 import type { ChunkedMap } from '../world/ChunkedMap';
 import { isWorldMeta, loadSpace, loadWorld, type SpaceJSON, type WorldMetaJSON } from '../world/MapLoader';
+import { inventoryLetter, inventoryLines, itemTags, orderedInventory } from '../ui/itemLists';
 import { Menu, type MenuAnchor, type MenuOption, type PanelLine } from '../ui/Menu';
 import { MessageLog } from '../ui/MessageLog';
+import { PALETTE } from '../config/palette';
 import { Renderer } from '../ui/Renderer';
 import { limbShortName, StatusBar } from '../ui/StatusBar';
 import { EventBus, type GameEvents } from './EventBus';
+import { addGroundItem, groundItemsAt } from './GroundItems';
+import { dropItem, fireGun, pickUp, readyAmmo, useItem } from './Items';
 import {
   addMessage,
   createGameState,
@@ -39,13 +43,20 @@ import {
  */
 type Mode =
   | { kind: 'normal' }
-  | { kind: 'direction'; command: 'fight' }
+  | { kind: 'direction'; command: 'fight' | 'fire' }
+  | { kind: 'animating' } // a shot tracer is playing; keys are swallowed
   | { kind: 'confirm'; target: Creature } // a Yes/No menu is open (its callback lives in the Menu)
   | { kind: 'menu' } // an option menu is open in the overlay (its callback lives in the Menu)
   | { kind: 'panel' } // a read-only panel (inventory, character sheet, help)
   | { kind: 'game-over' };
 
-type ModeName = 'normal' | 'direction' | 'confirm' | 'menu' | 'panel' | 'game-over';
+type ModeName = 'normal' | 'direction' | 'confirm' | 'menu' | 'panel' | 'animating' | 'game-over';
+
+type ShotEvent = GameEvents['shot-fired'];
+
+/** Milliseconds per cell the tracer travels, and how long the hit flash lingers. */
+const TRACER_STEP_MS = 25;
+const HIT_FLASH_MS = 90;
 
 const MODE_NAMES: Record<Mode['kind'], ModeName> = {
   normal: 'normal',
@@ -53,6 +64,7 @@ const MODE_NAMES: Record<Mode['kind'], ModeName> = {
   confirm: 'confirm',
   menu: 'menu',
   panel: 'panel',
+  animating: 'animating',
   'game-over': 'game-over',
 };
 
@@ -110,11 +122,15 @@ const HELP_LINES: PanelLine[] = [
   { text: 'Arrows        move (two arrows together = diagonal)' },
   { text: 'F + direction fight in that direction' },
   { text: 'Enter         command menu (every command and its key)' },
-  { text: 'w             wield a weapon (or bare hands)' },
+  { text: 'f + direction fire the wielded gun' },
+  { text: ',             pick up' },
+  { text: 'd             drop' },
+  { text: 'w             wield a weapon, gun or bare hands' },
+  { text: 'Q             ready ammunition (free)' },
+  { text: 'q             quaff / use a stimpak' },
   { text: 'i             inventory' },
   { text: 'C             character sheet' },
   { text: '.             wait a turn' },
-  { text: 'f             fire (not yet available)' },
   { text: '?             this help' },
   { text: 'Esc           cancel a prompt or close a window' },
 ];
@@ -129,15 +145,17 @@ interface Command {
 /** The Enter menu. Picking a row runs exactly what pressing its key would. */
 const COMMANDS: Command[] = [
   { label: 'Wield', key: 'w' },
+  { label: 'Pick up', key: ',' },
+  { label: 'Drop', key: 'd' },
+  { label: 'Fire', key: 'f' },
+  { label: 'Ready ammo', key: 'Q' },
+  { label: 'Quaff / use', key: 'q' },
   { label: 'Inventory', key: 'i' },
   { label: 'Character sheet', key: 'C' },
   { label: 'Fight in a direction', key: 'F' },
   { label: 'Wait', key: '.' },
   { label: 'Help', key: '?' },
   { label: 'Wear', key: 'W', disabled: true },
-  { label: 'Fire', key: 'f', disabled: true },
-  { label: 'Quaff / use', key: 'q', disabled: true },
-  { label: 'Pick up', key: ',', disabled: true },
 ];
 
 /**
@@ -159,6 +177,11 @@ export class Game {
   private debugMonsterCounter = 0;
   private streamer!: ChunkStreamer;
   private streamedChunk: ChunkCoord | null = null;
+  private pendingShots: ShotEvent[] = [];
+  private playingShots = false;
+  /** Bumped by restart; a tracer timer from an older generation does nothing. */
+  private animationToken = 0;
+  private lastShotEvent: ShotEvent | null = null;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -221,6 +244,10 @@ export class Game {
     this.unsubscribe = [
       this.events.on('attack-prompted', ({ target }) => this.openConfirmMenu(target)),
       this.events.on('npc-menu', ({ npc }) => this.openNpcMenu(npc)),
+      this.events.on('shot-fired', (shot) => {
+        this.lastShotEvent = shot;
+        this.pendingShots.push(shot);
+      }),
       this.events.on('player-died', () => this.showDeathScreen()),
     ];
   }
@@ -232,6 +259,7 @@ export class Game {
 
   private async restart(): Promise<void> {
     this.menu.hide();
+    this.cancelAnimations();
     this.state = this.buildState();
     this.bindEvents();
     this.mode = { kind: 'normal' };
@@ -270,7 +298,10 @@ export class Game {
   }
 
   private promptText(): string | null {
-    return this.mode.kind === 'direction' ? 'Attack in which direction? (arrows, Esc cancels)' : null;
+    if (this.mode.kind !== 'direction') return null;
+    return this.mode.command === 'fire'
+      ? 'Fire in which direction? (arrows, Esc cancels)'
+      : 'Attack in which direction? (arrows, Esc cancels)';
   }
 
   /** Anchor for a menu about `target`: beside its cell, never over it or the player. */
@@ -290,7 +321,8 @@ export class Game {
         break;
       case 'direction':
         this.setMode({ kind: 'normal' });
-        fightDirection(this.state, direction, this.events);
+        if (mode.command === 'fire') fireGun(this.state, direction, this.events);
+        else fightDirection(this.state, direction, this.events);
         break;
       case 'confirm':
       case 'menu':
@@ -299,7 +331,7 @@ export class Game {
         else if (direction === 'S') this.menu.handleKey('ArrowDown');
         break;
       default:
-        break;
+        break; // panel, game-over, animating: arrows do nothing
     }
     this.render();
   }
@@ -323,6 +355,8 @@ export class Game {
       case 'panel':
         if (key === 'Escape' || key === 'Enter' || key === ' ') this.closeMenu();
         break;
+      case 'animating':
+        return; // swallowed; the animation re-renders itself
       case 'game-over':
         if (key === 'Enter') {
           void this.restart();
@@ -338,11 +372,23 @@ export class Game {
       case 'F':
         this.setMode({ kind: 'direction', command: 'fight' });
         break;
-      case 'f':
       case 'W':
-      case 'q':
-      case ',':
         addMessage(this.state, "You can't do that yet.");
+        break;
+      case 'f':
+        this.setMode({ kind: 'direction', command: 'fire' });
+        break;
+      case ',':
+        this.pickUpCommand();
+        break;
+      case 'd':
+        this.openDropMenu();
+        break;
+      case 'Q':
+        this.openReadyMenu();
+        break;
+      case 'q':
+        this.openUseMenu();
         break;
       case '.':
         advanceTurn(this.state, this.events);
@@ -443,48 +489,115 @@ export class Game {
     this.setMode({ kind: 'menu' });
   }
 
-  private openWieldMenu(): void {
+  /** Rows for a list of inventory items (letters follow display order). */
+  private itemOptions(items: Item[], extra?: (item: Item) => Partial<MenuOption>): MenuOption[] {
     const player = this.state.player;
-    const items = player.inventory;
-    const options = [
-      {
-        label: 'bare hands',
-        hotkey: '-',
-        hint: player.wielded === null ? '(wielded)' : undefined,
-      },
-      ...items.map((item, i) => ({
-        label: itemDef(item.defId).name,
-        hotkey: String.fromCharCode(97 + i),
-        hint: player.wielded === item.id ? '(wielded)' : undefined,
-      })),
-    ];
-    const current = player.wielded === null ? 0 : items.findIndex((i) => i.id === player.wielded) + 1;
+    return items.map((item, i) => {
+      const tags = itemTags(player, item).filter((t) => t !== "(can't drop)");
+      return { label: itemLabel(item), hotkey: inventoryLetter(i), hint: tags.join(' ') || undefined, ...extra?.(item) };
+    });
+  }
+
+  private openItemMenu(
+    title: string,
+    options: MenuOption[],
+    onPick: (index: number) => void,
+    selected = 0,
+  ): void {
     this.menu.open(
-      'Wield what?',
+      title,
       options,
       (index) => {
         this.closeMenu();
-        wieldItem(this.state, index === 0 ? null : items[index - 1]!.id, this.events);
+        onPick(index);
         this.render();
       },
-      current,
+      selected,
       undefined,
-      this.anchorTo(player),
+      this.anchorTo(this.state.player),
     );
     this.setMode({ kind: 'menu' });
   }
 
-  private showInventory(): void {
+  private pickUpCommand(): void {
+    const { x, y } = this.state.player;
+    const here = groundItemsAt(this.state, x, y);
+    if (here.length <= 1) {
+      pickUp(this.state, 'all', this.events); // one item, or the engine's "nothing here"
+      return;
+    }
+    const options: MenuOption[] = [
+      { label: 'All of it', hotkey: '-' },
+      ...here.map((g, i) => ({ label: itemLabel(g.item), hotkey: inventoryLetter(i) })),
+    ];
+    this.openItemMenu('Pick up what?', options, (index) => {
+      pickUp(this.state, index === 0 ? 'all' : [here[index - 1]!.item.id], this.events);
+    });
+  }
+
+  private openDropMenu(): void {
+    const items = orderedInventory(this.state.player.inventory);
+    if (items.length === 0) {
+      addMessage(this.state, 'You are carrying nothing.');
+      return;
+    }
+    const options = this.itemOptions(items, (item) =>
+      isUndroppable(item) ? { disabled: true, hint: "(can't drop)" } : {},
+    );
+    this.openItemMenu('Drop what?', options, (index) => dropItem(this.state, items[index]!.id, this.events));
+  }
+
+  private openReadyMenu(): void {
     const player = this.state.player;
-    const lines: PanelLine[] =
-      player.inventory.length === 0
-        ? [{ text: 'You are carrying nothing.', cls: 'dim' }]
-        : player.inventory.map((item, i) => ({
-            text: `${String.fromCharCode(97 + i)} - ${itemDef(item.defId).name}${
-              player.wielded === item.id ? ' (wielded)' : ''
-            }`,
-          }));
-    this.menu.showPanel('Inventory', lines, 'Esc to close');
+    const stacks = orderedInventory(player.inventory).filter((i) => itemDef(i.defId).kind === 'ammo');
+    if (stacks.length === 0) {
+      addMessage(this.state, 'You have no ammunition.');
+      return;
+    }
+    const options: MenuOption[] = [
+      { label: 'nothing', hotkey: '-', hint: player.readied === null ? '(readied)' : undefined },
+      ...this.itemOptions(stacks).map((o, i) => ({ ...o, hotkey: inventoryLetter(i) })),
+    ];
+    const current = player.readied === null ? 0 : stacks.findIndex((i) => i.id === player.readied) + 1;
+    this.openItemMenu(
+      'Ready what?',
+      options,
+      (index) => readyAmmo(this.state, index === 0 ? null : stacks[index - 1]!.id, this.events),
+      current,
+    );
+  }
+
+  private openUseMenu(): void {
+    const items = orderedInventory(this.state.player.inventory).filter(
+      (i) => itemDef(i.defId).kind === 'consumable',
+    );
+    if (items.length === 0) {
+      addMessage(this.state, 'You have nothing to use.');
+      return;
+    }
+    this.openItemMenu('Use what?', this.itemOptions(items), (index) =>
+      useItem(this.state, items[index]!.id, this.events),
+    );
+  }
+
+  private openWieldMenu(): void {
+    const player = this.state.player;
+    const items = orderedInventory(player.inventory).filter((i) => isWieldable(itemDef(i.defId)));
+    const options: MenuOption[] = [
+      { label: 'bare hands', hotkey: '-', hint: player.wielded === null ? '(wielded)' : undefined },
+      ...this.itemOptions(items).map((o, i) => ({ ...o, hotkey: inventoryLetter(i) })),
+    ];
+    const current = player.wielded === null ? 0 : items.findIndex((i) => i.id === player.wielded) + 1;
+    this.openItemMenu(
+      'Wield what?',
+      options,
+      (index) => wieldItem(this.state, index === 0 ? null : items[index - 1]!.id, this.events),
+      current,
+    );
+  }
+
+  private showInventory(): void {
+    this.menu.showPanel('Inventory', inventoryLines(this.state.player), 'Esc to close');
     this.setMode({ kind: 'panel' });
   }
 
@@ -539,6 +652,74 @@ export class Game {
     this.messageLog.render(this.state.messageLog);
     this.statusBar.render(this.state, this.promptText());
     this.menu.reposition();
+    this.playQueuedShots();
+  }
+
+  // ---- shot tracer animation ---------------------------------------------------------------
+
+  private cancelAnimations(): void {
+    this.animationToken++;
+    this.pendingShots = [];
+    this.playingShots = false;
+    this.renderer.tracer = null;
+    if (this.mode.kind === 'animating') this.mode = { kind: 'normal' };
+  }
+
+  /**
+   * Plays the shots the last action produced, in order, after the turn has completed. Only when the
+   * game is idle in normal mode: a death or a confirm menu that appeared during the same turn
+   * wins, and the tracers are simply dropped.
+   */
+  private playQueuedShots(): void {
+    if (this.playingShots || this.pendingShots.length === 0) return;
+    if (this.mode.kind !== 'normal' || this.state.gameOver) {
+      this.pendingShots = [];
+      return;
+    }
+    this.playingShots = true;
+    this.setMode({ kind: 'animating' });
+    const token = this.animationToken;
+    const state = this.state;
+    const queue = this.pendingShots;
+    this.pendingShots = [];
+    const finish = () => {
+      if (token !== this.animationToken) return;
+      this.playingShots = false;
+      this.renderer.tracer = null;
+      if (this.mode.kind === 'animating') this.setMode({ kind: 'normal' });
+      this.render();
+    };
+    const playShot = (shot: ShotEvent | undefined) => {
+      if (token !== this.animationToken) return;
+      if (!shot) return finish();
+      const fg = shot.shooterId === state.player.id ? PALETTE.uiAmber : PALETTE.hostileRing;
+      let step = 0;
+      const tick = () => {
+        if (token !== this.animationToken) return;
+        const cell = shot.path[step];
+        if (cell) {
+          this.renderer.tracer = { x: cell.x, y: cell.y, glyph: '\u2022', fg };
+          this.renderer.render(state);
+          step++;
+          setTimeout(tick, TRACER_STEP_MS);
+          return;
+        }
+        const last = shot.path[shot.path.length - 1];
+        if (shot.hitId !== undefined && last) {
+          this.renderer.tracer = { x: last.x, y: last.y, glyph: '*', fg: PALETTE.uiDanger };
+          this.renderer.render(state);
+          setTimeout(() => {
+            this.renderer.tracer = null;
+            playShot(queue.shift());
+          }, HIT_FLASH_MS);
+          return;
+        }
+        this.renderer.tracer = null;
+        playShot(queue.shift());
+      };
+      tick();
+    };
+    playShot(queue.shift());
   }
 
   /**
@@ -582,11 +763,31 @@ export class Game {
         this.render();
         return monster;
       },
-      give: (defId: string) => {
-        const item = createItem(defId);
-        this.state.player.inventory.push(item);
+      give: (defId: string, count?: number) => {
+        const item = addToStack(this.state.player.inventory, createItem(defId, count));
+        this.render();
         return item;
       },
+      dropAt: (defId: string, x: number, y: number, count?: number) => {
+        addGroundItem(getActiveSpace(this.state), x, y, createItem(defId, count));
+        this.render();
+      },
+      listGroundItems: () => getActiveSpace(this.state).items,
+      setWielded: (defId: string | null) => {
+        const p = this.state.player;
+        const item = defId === null ? null : p.inventory.find((i) => i.defId === defId);
+        if (item === undefined) throw new Error('No ' + defId + ' in inventory');
+        p.wielded = item?.id ?? null;
+        this.render();
+      },
+      setReadied: (defId: string | null) => {
+        const p = this.state.player;
+        const item = defId === null ? null : p.inventory.find((i) => i.defId === defId);
+        if (item === undefined) throw new Error('No ' + defId + ' in inventory');
+        p.readied = item?.id ?? null;
+        this.render();
+      },
+      lastShot: () => this.lastShotEvent,
       damagePlayer: (n: number) => {
         const p = this.state.player;
         p.hp -= n;
