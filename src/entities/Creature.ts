@@ -1,6 +1,7 @@
 import type { AttackProfile, Combatant } from '../combat/Combatant';
 import type { Carrier } from '../items/Loadout';
 import type { Point } from '../utils/geometry';
+import type { FactionId, Nerve, Temperament } from './Factions';
 import type { Monster } from './Monster';
 import type { Npc } from './Npc';
 
@@ -10,6 +11,12 @@ export interface CreatureStats extends Combatant, Carrier {
   /** Proper names ("Sunny Smiles") take no article; "gecko" becomes "the gecko". */
   proper: boolean;
   hostile: boolean;
+  /** Which organised group or kind of beast it belongs to; null for an ordinary civilian. */
+  faction: FactionId | null;
+  /** How it treats strangers: attack on sight, guard its patch, or leave them be. */
+  temperament: Temperament;
+  /** How it holds up once provoked: stands and fights, runs, or somewhere between. */
+  nerve: Nerve;
   /** How far away it notices you. */
   awareness: number;
   /** Once it has noticed you it keeps hunting, even round a corner. */

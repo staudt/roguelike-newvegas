@@ -1,7 +1,7 @@
 import { createLimbs } from '../combat/Limbs';
 import type { CreatureStats } from './Creature';
 import type { Entity } from './Entity';
-import { monsterDef } from './MonsterData';
+import { monsterDef, monsterStartsHostile } from './MonsterData';
 
 export interface Monster extends Entity, CreatureStats {
   kind: 'monster';
@@ -20,7 +20,10 @@ export function createMonster(id: string, defId: string, x: number, y: number): 
     defId,
     name: def.name,
     proper: false,
-    hostile: def.hostile,
+    hostile: monsterStartsHostile(def),
+    faction: def.faction,
+    temperament: def.temperament,
+    nerve: 'steady',
     awareness: def.awareness,
     alerted: false,
     provoked: false,

@@ -1,6 +1,8 @@
 import type { GroundItem, Place, Space } from '../engine/GameState';
 import { createMonster } from '../entities/Monster';
-import { createNpc, type InteractionId } from '../entities/Npc';
+import type { FactionId, Nerve, Temperament } from '../entities/Factions';
+import { createNpc, type InteractionId, type NpcProfile } from '../entities/Npc';
+import { npcProfile } from '../entities/NpcData';
 import { addGroundItem } from '../engine/GroundItems';
 import { createItem } from '../items/Item';
 import { applyLoadout, loadoutOf, type LoadoutJSON } from '../items/Loadout';
@@ -37,6 +39,10 @@ export interface SpaceJSON {
     fg?: string;
     /** Omitted means just 'talk'. More than one opens a menu on bump. */
     interactions?: InteractionId[];
+    /** Optional overrides of the built-in profile (see NpcData). */
+    faction?: FactionId;
+    temperament?: Temperament;
+    nerve?: Nerve;
   }>;
   /** Creatures placed from the monster table. Omitted means none. */
   monsters?: Array<LoadoutJSON & { defId: string; x: number; y: number }>;
@@ -57,7 +63,13 @@ type EntityJSON = Pick<SpaceJSON, 'npcs' | 'monsters' | 'transitions' | 'places'
 
 function buildEntities(data: EntityJSON) {
   const npcs = data.npcs.map((n) => {
-    const npc = createNpc(n.id, n.name, n.x, n.y, n.dialogue, n.fg, n.interactions);
+    const profile: NpcProfile = {
+      ...npcProfile(n.id),
+      ...(n.faction ? { faction: n.faction } : {}),
+      ...(n.temperament ? { temperament: n.temperament } : {}),
+      ...(n.nerve ? { nerve: n.nerve } : {}),
+    };
+    const npc = createNpc(n.id, n.name, n.x, n.y, n.dialogue, n.fg, n.interactions, profile);
     applyLoadout(npc, n);
     return npc;
   });

@@ -115,13 +115,9 @@ export const SHOUT_NOISE_RADIUS = 16;
 /** Percent chance that a peaceful person in earshot of a gunshot goes to see. A shot alone is no alarm. */
 export const GUNSHOT_CURIOSITY_CHANCE = 30;
 
-/** Percent chance that a provoked person with no weapon at all runs rather than fights bare-handed. */
-export const UNARMED_FLEE_CHANCE = 75;
-
 /** Percent chance per action that a fleeing person screams again while the player is in sight. */
 export const FLEE_SCREAM_CHANCE = 20;
 
 /** A provoked person with a gun backs off when the player is closer than this many cells... */
 export const GUN_KEEP_DISTANCE = 3;
-/** ...on this percent of their actions (the rest of the time they shoot, so a chase can't go on forever). */
-export const GUN_KITE_CHANCE = 60;
+/** ...on a per-nerve percent of their actions (see `GUN_KITE_CHANCE`); otherwise they shoot, so a chase can't go on forever. */

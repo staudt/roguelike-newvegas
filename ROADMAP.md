@@ -70,9 +70,20 @@ Design decisions (agreed with the user):
 - Sound: screams, shouts (calls for help or to arms) and gunshots draw creatures in range; gunshots
   especially draw hunters (non-territorial), not territorial creatures.
 
-Order: (1) sound + investigate + provoke/witness — **done**; (2) factions, relations, temperament data
-(`hostile` becomes derived: faction relation, temperament, `provoked`); (3) reputation, leaders, hostile
-on sight; (4) creatures fighting each other (targets other than the player).
+Order: (1) sound + investigate + provoke/witness — **done**; (2) factions, relations, temperament — **done**;
+(3) reputation, leaders, hostile on sight; (4) creatures fighting each other (targets other than the player).
+
+Step 2 as built (`entities/Factions.ts`, `entities/NpcData.ts`): `faction` (wildlife, ghouls, powder-gangers, ncr,
+legion, or null for a civilian), `temperament` (aggressive / territorial / peaceful: how it treats strangers) and
+`nerve` (bold / steady / timid: how it holds up once provoked) are on every creature. `factionRelation(a, b)` is the
+relations table (NCR vs Legion and vs Powder Gangers, Powder Gangers vs civilians, beasts vs everyone else).
+`hostileToPlayer(faction, temperament, standing)` derives hostility: peaceful never, others when the faction's
+standing (`state.standing`, starting values in `FACTIONS`) is at or below `HOSTILE_STANDING`, factionless
+non-peaceful always. `hostile` stays the runtime state, refreshed from standing at the start of each creature
+action. Nerve sets `UNARMED_FLEE_CHANCE` / `GUN_KITE_CHANCE` (Sunny bold, Doc timid, in `NPC_PROFILES`; a map NPC may
+add `faction`/`temperament`/`nerve`). Gunshots: aggressive creatures (geckos, ghouls) come from afar, territorial ones
+(radroach) only if the shot is within their awareness. Fleeing uses an escape map (`fleeStep`) so runners go round walls.
+Step 3 will move `state.standing` (reputation) when leaders are killed.
 
 Step 1 as built: `engine/Sound.ts` (`emitSound`, `provoke`), `provoked` / `investigate` on creatures,
 `SCREAM_NOISE_RADIUS` / `SHOUT_NOISE_RADIUS`, AI `joinsTrouble` and `investigateNoise`. Every blow, bullet

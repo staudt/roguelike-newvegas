@@ -1,4 +1,5 @@
 import { DAYLIGHT_SIGHT_RADIUS, INDOOR_SIGHT_RADIUS } from '../config/constants';
+import { startingStanding, type Standing } from '../entities/Factions';
 import type { Monster } from '../entities/Monster';
 import type { Item } from '../items/Item';
 import type { Npc } from '../entities/Npc';
@@ -88,6 +89,8 @@ export interface GameState {
   messageLog: string[];
   balloons: Balloon[];
   gameOver: boolean;
+  /** The player's standing with each faction, -100..100. At or below `HOSTILE_STANDING` it attacks on sight. */
+  standing: Standing;
 }
 
 export function getActiveSpace(state: GameState): Space {
@@ -113,5 +116,6 @@ export function createGameState(
     messageLog: [],
     balloons: [],
     gameOver: false,
+    standing: startingStanding(),
   };
 }

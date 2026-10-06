@@ -3,6 +3,7 @@ import { NORMAL_SPEED } from '../config/constants';
 import { PALETTE } from '../config/palette';
 import { BARE_HANDS } from '../items/ItemData';
 import type { CreatureStats } from './Creature';
+import { hostileToPlayer, startingStanding, type FactionId, type Nerve, type Temperament } from './Factions';
 import type { Entity } from './Entity';
 
 /** What you can do by bumping into someone. One option means bump-to-talk; several open a menu. */
@@ -31,6 +32,13 @@ export interface Npc extends Entity, CreatureStats {
 
 const NPC_HP = 24;
 
+/** What sets a person apart toward strangers and in a fight. Everyone defaults to a steady, peaceful civilian. */
+export interface NpcProfile {
+  faction?: FactionId;
+  temperament?: Temperament;
+  nerve?: Nerve;
+}
+
 export function createNpc(
   id: string,
   name: string,
@@ -39,7 +47,10 @@ export function createNpc(
   dialogue: string[],
   fg: string = PALETTE.npcFg,
   interactions: InteractionId[] = ['talk'],
+  profile: NpcProfile = {},
 ): Npc {
+  const faction = profile.faction ?? null;
+  const temperament = profile.temperament ?? 'peaceful';
   return {
     id,
     kind: 'npc',
@@ -49,7 +60,10 @@ export function createNpc(
     y,
     name,
     proper: true,
-    hostile: false,
+    hostile: hostileToPlayer(faction, temperament, startingStanding()),
+    faction,
+    temperament,
+    nerve: profile.nerve ?? 'steady',
     awareness: 8,
     alerted: false,
     provoked: false,

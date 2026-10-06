@@ -19,7 +19,7 @@ import {
   type DoorSide,
 } from '../world/buildingTemplate';
 import { INTERACTION_LABELS, type InteractionId } from '../entities/Npc';
-import { MONSTERS } from '../entities/MonsterData';
+import { MONSTERS, monsterStartsHostile } from '../entities/MonsterData';
 import { ITEMS, type ItemDef } from '../items/ItemData';
 import {
   FILL_CAP,
@@ -460,7 +460,7 @@ async function boot(): Promise<void> {
     for (const monster of doc.monsters) {
       const def = MONSTERS[monster.defId];
       drawMarker(monster.x, monster.y, def?.glyph ?? '?', def?.fg ?? PALETTE.hostileRing, monster === selectedMonster);
-      if (def?.hostile) drawRing(monster.x, monster.y);
+      if (def && monsterStartsHostile(def)) drawRing(monster.x, monster.y);
     }
     for (const npc of doc.npcs) {
       drawMarker(npc.x, npc.y, '@', npc.fg ?? PALETTE.npcFg, npc.id === selectedNpcId);
@@ -1487,7 +1487,7 @@ async function boot(): Promise<void> {
       glyph.style.color = def.fg;
       glyph.textContent = def.glyph;
       const label = document.createElement('span');
-      label.textContent = def.hostile ? def.name : `${def.name} (peaceful)`;
+      label.textContent = monsterStartsHostile(def) ? def.name : `${def.name} (peaceful)`;
       button.append(glyph, label);
       button.addEventListener('click', () => {
         brushMonster = def.id;
@@ -2038,7 +2038,7 @@ async function boot(): Promise<void> {
 
     const info = document.createElement('div');
     info.className = 'id-display';
-    info.textContent = `${monster.defId} @ (${monster.x}, ${monster.y})${def && !def.hostile ? ' (peaceful)' : ''}`;
+    info.textContent = `${monster.defId} @ (${monster.x}, ${monster.y})${def && !monsterStartsHostile(def) ? ' (peaceful)' : ''}`;
     form.append(info);
 
     const typeSelect = document.createElement('select');

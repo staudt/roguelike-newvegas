@@ -2,14 +2,13 @@ import { effectiveSpeed } from '../combat/CombatFormulas';
 import {
   FLEE_SCREAM_CHANCE,
   GUN_KEEP_DISTANCE,
-  GUN_KITE_CHANCE,
   LOSE_TRACK_FACTOR,
   MAX_ACTIONS_PER_TURN,
   NORMAL_SPEED,
   PEACEFUL_WANDER_CHANCE,
   SIM_RADIUS,
-  UNARMED_FLEE_CHANCE,
 } from '../config/constants';
+import { GUN_KITE_CHANCE, UNARMED_FLEE_CHANCE, hostileToPlayer } from '../entities/Factions';
 import { theName, type Creature } from '../entities/Creature';
 import { capitalize } from '../combat/Narration';
 import { creatureAttacks, fireProjectile, shotPath } from '../engine/Combat';
@@ -63,6 +62,7 @@ export function runCreatureTurns(state: GameState, rng: RNG, events: EventBus<Ga
     while (creature.energy >= NORMAL_SPEED && actions < MAX_ACTIONS_PER_TURN && !state.gameOver) {
       creature.energy -= NORMAL_SPEED;
       actions++;
+      turnOnIfDisliked(state, creature);
 
       if (creature.hostile) {
         actAsHostile(state, creature, rng, events, occupancy);
@@ -77,6 +77,12 @@ export function runCreatureTurns(state: GameState, rng: RNG, events: EventBus<Ga
     // An idle creature doesn't hoard turns to unleash later.
     if (creature.energy > NORMAL_SPEED) creature.energy = NORMAL_SPEED;
   }
+}
+
+/** A faction the player has fallen out with attacks on sight, even creatures that were calm a turn ago. */
+function turnOnIfDisliked(state: GameState, creature: Creature): void {
+  if (creature.hostile) return;
+  if (hostileToPlayer(creature.faction, creature.temperament, state.standing)) creature.hostile = true;
 }
 
 function moveTo(occupancy: Occupancy, creature: Creature, x: number, y: number): void {
@@ -207,7 +213,7 @@ function armament(creature: Creature): 'gun' | 'melee' | 'none' {
  */
 function chooseStance(creature: Creature, rng: RNG): 'flee' | 'fight' {
   if (armament(creature) !== 'none') return 'fight';
-  return randomInt(rng, 1, 100) <= UNARMED_FLEE_CHANCE ? 'flee' : 'fight';
+  return randomInt(rng, 1, 100) <= UNARMED_FLEE_CHANCE[creature.nerve] ? 'flee' : 'fight';
 }
 
 /**
@@ -357,7 +363,7 @@ function actWithGun(
   if (
     creature.kind === 'npc' &&
     chebyshevDistance(creature, state.player) < GUN_KEEP_DISTANCE &&
-    randomInt(rng, 1, 100) <= GUN_KITE_CHANCE &&
+    randomInt(rng, 1, 100) <= GUN_KITE_CHANCE[creature.nerve] &&
     stepAway(state, creature, occupancy)
   ) {
     return true;

@@ -1,5 +1,6 @@
 import type { AttackProfile, CreatureSize } from '../combat/Combatant';
 import type { BodyPlanId } from '../combat/Limbs';
+import { hostileToPlayer, startingStanding, type FactionId, type Temperament } from './Factions';
 
 export interface MonsterDef {
   id: string;
@@ -19,7 +20,8 @@ export interface MonsterDef {
   bodyPlan: BodyPlanId;
   attack: AttackProfile;
   awareness: number;
-  hostile: boolean;
+  faction: FactionId;
+  temperament: Temperament;
   /** Things it may leave behind when it dies, each rolled independently. */
   loot?: LootEntry[];
 }
@@ -57,7 +59,8 @@ export const MONSTERS: Record<string, MonsterDef> = {
       strengthBonus: false,
     },
     awareness: 8,
-    hostile: true,
+    faction: 'wildlife',
+    temperament: 'aggressive',
     loot: [{ defId: 'gecko-hide', chance: 35 }],
   },
   bloatfly: {
@@ -81,7 +84,8 @@ export const MONSTERS: Record<string, MonsterDef> = {
       strengthBonus: false,
     },
     awareness: 9,
-    hostile: true,
+    faction: 'wildlife',
+    temperament: 'aggressive',
   },
   radroach: {
     id: 'radroach',
@@ -104,7 +108,8 @@ export const MONSTERS: Record<string, MonsterDef> = {
       strengthBonus: false,
     },
     awareness: 6,
-    hostile: true,
+    faction: 'wildlife',
+    temperament: 'territorial',
   },
   ghoul: {
     id: 'ghoul',
@@ -128,7 +133,8 @@ export const MONSTERS: Record<string, MonsterDef> = {
       strengthBonus: false,
     },
     awareness: 7,
-    hostile: true,
+    faction: 'ghouls',
+    temperament: 'aggressive',
   },
   brahmin: {
     id: 'brahmin',
@@ -150,9 +156,15 @@ export const MONSTERS: Record<string, MonsterDef> = {
       strengthBonus: true,
     },
     awareness: 4,
-    hostile: false,
+    faction: 'wildlife',
+    temperament: 'peaceful',
   },
 };
+
+/** Does this kind attack on sight when the game begins (before any provoking or standing changes)? */
+export function monsterStartsHostile(def: MonsterDef): boolean {
+  return hostileToPlayer(def.faction, def.temperament, startingStanding());
+}
 
 export function monsterDef(defId: string): MonsterDef {
   const def = MONSTERS[defId];
