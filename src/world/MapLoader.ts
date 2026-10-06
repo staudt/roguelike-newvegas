@@ -36,6 +36,10 @@ export interface SpaceJSON {
   transitions: Array<{ x: number; y: number; toSpace: string }>;
   /** Where the player starts out. Only meaningful on the space the game boots into ('world'). */
   playerStart?: Point;
+  /** Groundwork for multi-floor buildings: which building this interior belongs to. Ignored by the loader for now. */
+  building?: string;
+  /** Floor index within `building` (0 = ground floor). Ignored by the loader for now. */
+  floor?: number;
 }
 
 export function loadSpace(data: SpaceJSON): Space {

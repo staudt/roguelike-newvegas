@@ -1,6 +1,3 @@
-import docMitchellsHouseRaw from '../world/goodsprings/docMitchellsHouse.json';
-import prospectorSaloonRaw from '../world/goodsprings/prospectorSaloon.json';
-import worldMapRaw from '../world/goodsprings/worldMap.json';
 import { limbCondition } from '../combat/Limbs';
 import { theName, type Creature } from '../entities/Creature';
 import { createMonster } from '../entities/Monster';
@@ -56,11 +53,32 @@ const MODE_NAMES: Record<Mode['kind'], ModeName> = {
   'game-over': 'game-over',
 };
 
-const SPACE_DATA: SpaceJSON[] = [
-  worldMapRaw as unknown as SpaceJSON,
-  prospectorSaloonRaw as unknown as SpaceJSON,
-  docMitchellsHouseRaw as unknown as SpaceJSON,
-];
+const WORLD_SPACE_ID = 'world';
+
+/**
+ * Every .json in src/world/goodsprings is a space, found at build time — adding a map file (the
+ * editor's "New building" helper does) needs no code change here.
+ */
+const SPACE_DATA: SpaceJSON[] = collectSpaces(
+  import.meta.glob<SpaceJSON>('../world/goodsprings/*.json', { eager: true, import: 'default' }),
+);
+
+function collectSpaces(files: Record<string, SpaceJSON>): SpaceJSON[] {
+  const byId = new Map<string, string>();
+  const spaces: SpaceJSON[] = [];
+  for (const [path, data] of Object.entries(files).sort(([a], [b]) => a.localeCompare(b))) {
+    const earlier = byId.get(data.id);
+    if (earlier !== undefined) {
+      throw new Error(`Duplicate space id "${data.id}" in ${path} and ${earlier}`);
+    }
+    byId.set(data.id, path);
+    spaces.push(data);
+  }
+  if (!byId.has(WORLD_SPACE_ID)) {
+    throw new Error(`No space with id "${WORLD_SPACE_ID}" found in src/world/goodsprings/*.json`);
+  }
+  return spaces;
+}
 
 const HELP_LINES: PanelLine[] = [
   { text: 'Arrows        move (two arrows together = diagonal)' },
@@ -153,7 +171,7 @@ export class Game {
       const space = loadSpace(data);
       spaces[space.id] = space;
     }
-    const worldData = SPACE_DATA[0]!;
+    const worldData = SPACE_DATA.find((d) => d.id === WORLD_SPACE_ID)!;
     const start = worldData.playerStart ?? { x: 0, y: 0 };
     const state = createGameState(createPlayer(start.x, start.y), spaces, getWorldId(worldData));
     addMessage(state, `Welcome to ${spaces[state.activeSpaceId]!.name}.`);

@@ -1,16 +1,18 @@
-import { readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve, sep } from 'node:path';
 import { defineConfig, type Plugin } from 'vitest/config';
 
 const MAP_DIR = 'src/world/goodsprings';
-const ALLOWED_FILES = new Set(['worldMap.json', 'prospectorSaloon.json', 'docMitchellsHouse.json']);
+const SAFE_FILE = /^[A-Za-z0-9-]+\.json$/;
 
 /**
  * Lets the map editor save back to the repository during `npm run dev`.
  *
  * Mirrors rogueout's planSaver: a dev-server-only route (`apply: 'serve'`), so it does not exist
  * in a production build — the published game can never write a file. `?file=` is restricted to a
- * fixed whitelist so the route can't be used to write anywhere else in the repo.
+ * plain-filename pattern that must resolve inside the map directory, so the route can't be used to
+ * write anywhere else in the repo. Any such file may be created (the editor's New building helper
+ * does), and GET ?list=1 lists the map files present.
  */
 function mapSaver(): Plugin {
   return {
@@ -19,17 +21,30 @@ function mapSaver(): Plugin {
     configureServer(server) {
       server.middlewares.use('/__map', (req, res) => {
         const url = new URL(req.url ?? '', 'http://localhost');
-        const file = url.searchParams.get('file') ?? '';
+        const mapDir = resolve(process.cwd(), MAP_DIR);
 
-        if (!ALLOWED_FILES.has(file)) {
-          res.statusCode = 400;
-          res.end(`Unknown map file "${file}". Allowed: ${[...ALLOWED_FILES].join(', ')}`);
+        if (url.searchParams.get('list') === '1' && req.method === 'GET') {
+          const files = readdirSync(mapDir).filter((f) => SAFE_FILE.test(f)).sort();
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(files));
           return;
         }
 
-        const fullPath = resolve(process.cwd(), MAP_DIR, file);
+        const file = url.searchParams.get('file') ?? '';
+        const fullPath = resolve(mapDir, file);
+
+        if (!SAFE_FILE.test(file) || !fullPath.startsWith(mapDir + sep)) {
+          res.statusCode = 400;
+          res.end(`Bad map file name "${file}". Expected letters, digits and dashes plus .json.`);
+          return;
+        }
 
         if (req.method === 'GET') {
+          if (!existsSync(fullPath)) {
+            res.statusCode = 404;
+            res.end(`No such map file "${file}"`);
+            return;
+          }
           res.setHeader('Content-Type', 'application/json');
           res.end(readFileSync(fullPath, 'utf8'));
           return;

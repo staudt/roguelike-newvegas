@@ -84,6 +84,9 @@ export class MapDocument {
   monsters: EditableMonster[];
   transitions: EditableTransition[];
   playerStart: Point | undefined;
+  /** Optional multi-floor metadata, carried through untouched so a save never drops it. */
+  building: string | undefined;
+  floor: number | undefined;
 
   private tiles: string[];
   /** Row-major, 0..MAX_GROUND_HEIGHT. Meaningful only where the tile is 'ground', same as GameMap. */
@@ -115,6 +118,8 @@ export class MapDocument {
     this.monsters = (data.monsters ?? []).map((m) => ({ ...m }));
     this.transitions = data.transitions.map((t) => ({ ...t }));
     this.playerStart = data.playerStart ? { ...data.playerStart } : undefined;
+    this.building = data.building;
+    this.floor = data.floor;
   }
 
   toJSON(): SpaceJSON {
@@ -132,6 +137,8 @@ export class MapDocument {
       transitions: this.transitions.map((t) => ({ ...t })),
     };
     if (this.playerStart) json.playerStart = { ...this.playerStart };
+    if (this.building !== undefined) json.building = this.building;
+    if (this.floor !== undefined) json.floor = this.floor;
     return json;
   }
 
@@ -240,6 +247,22 @@ export class MapDocument {
         if (x === x0 || x === x1 || y === y0 || y === y1) this.paintTile(x, y, tileId);
       }
     }
+  }
+
+  /**
+   * Applies a building's outdoor patch (tiles + door transition, in WORLD coordinates) as ONE undo
+   * step. Heights under the patch are reset to 0 so the footprint is flat.
+   */
+  applyBuildingPatch(patch: {
+    tiles: Array<{ x: number; y: number; id: string }>;
+    transition: EditableTransition;
+  }): void {
+    this.beginStroke();
+    for (const t of patch.tiles) {
+      this.paintTile(t.x, t.y, t.id);
+      this.setHeight(t.x, t.y, 0);
+    }
+    this.addTransition(patch.transition.x, patch.transition.y, patch.transition.toSpace);
   }
 
   /** Flood fill, 4-connected. */

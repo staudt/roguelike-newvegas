@@ -4,6 +4,20 @@ import { isConnectedWall, wallGlyph } from '../ui/WallGlyphs';
 import { linePoints, type Point } from '../utils/geometry';
 import { TILES, visualFor } from '../world/Tile';
 import type { SpaceJSON } from '../world/MapLoader';
+import {
+  buildBuilding,
+  defaultDoorOffset,
+  doorCells,
+  doorOffsetRange,
+  idToFileName,
+  MIN_BUILDING_H,
+  MIN_BUILDING_W,
+  outsideDoorWalkable,
+  slugify,
+  validateBuilding,
+  type BuildingRect,
+  type DoorSide,
+} from '../world/buildingTemplate';
 import { INTERACTION_LABELS, type InteractionId } from '../entities/Npc';
 import { MONSTERS } from '../entities/MonsterData';
 import { type EditableMonster, type EditableNpc, type EditableTransition, MapDocument } from './MapDocument';
@@ -19,14 +33,30 @@ import { type EditableMonster, type EditableNpc, type EditableTransition, MapDoc
  * tile table, palette and on-disk JSON contract with the game, and nothing else.
  */
 
-const ALLOWED_FILES = ['worldMap.json', 'prospectorSaloon.json', 'docMitchellsHouse.json'] as const;
-type MapFile = (typeof ALLOWED_FILES)[number];
+type MapFile = string;
+const WORLD_FILE = 'worldMap.json';
+/** Used when the dev server can't list the map directory. */
+const FALLBACK_FILES = ['worldMap.json', 'prospectorSaloon.json', 'docMitchellsHouse.json'];
+
+interface SpaceEntry {
+  file: MapFile;
+  id: string;
+  name: string;
+}
+
+/** A building interior created this session that has not been written to disk yet. */
+interface PendingSpace {
+  file: MapFile;
+  json: SpaceJSON;
+  /** Where its door transition lives on the world map, so an undo of the patch can drop it. */
+  door: { x: number; y: number };
+}
 
 const DEFAULT_CELL = 22;
 const ZOOM_STEPS = [10, 14, 18, 22, 28, 36];
 
 type Mode = 'tile' | 'height' | 'npc' | 'monster' | 'transition';
-type TileTool = 'pencil' | 'line' | 'rect' | 'box' | 'fill' | 'pick';
+type TileTool = 'pencil' | 'line' | 'rect' | 'box' | 'building' | 'fill' | 'pick';
 type HeightTool = 'raise' | 'lower' | 'set';
 
 const PAINTABLE_TILES = ['ground', 'rock', 'wall', 'door', 'floor'] as const;
@@ -35,6 +65,29 @@ async function fetchSpace(file: MapFile): Promise<SpaceJSON> {
   const response = await fetch(`/__map?file=${file}`);
   if (!response.ok) throw new Error(`GET /__map?file=${file} -> ${response.status}`);
   return (await response.json()) as SpaceJSON;
+}
+
+async function fetchSpaceList(): Promise<SpaceEntry[]> {
+  let files: string[];
+  try {
+    const response = await fetch('/__map?list=1');
+    if (!response.ok) throw new Error(String(response.status));
+    files = (await response.json()) as string[];
+  } catch {
+    files = FALLBACK_FILES;
+  }
+  const entries: SpaceEntry[] = [];
+  for (const file of files) {
+    try {
+      const data = await fetchSpace(file);
+      entries.push({ file, id: data.id, name: data.name });
+    } catch {
+      entries.push({ file, id: file.replace(/\.json$/, ''), name: file });
+    }
+  }
+  // World first, then the rest by display name.
+  entries.sort((a, b) => (a.file === WORLD_FILE ? -1 : b.file === WORLD_FILE ? 1 : a.name.localeCompare(b.name)));
+  return entries;
 }
 
 async function boot(): Promise<void> {
@@ -58,6 +111,7 @@ async function boot(): Promise<void> {
   const paletteEl = root.querySelector<HTMLDivElement>('#palette')!;
   const inspectorEl = root.querySelector<HTMLDivElement>('#inspector')!;
   const saveButton = root.querySelector<HTMLButtonElement>('#save')!;
+  const pendingEl = root.querySelector<HTMLSpanElement>('#pending')!;
 
   let currentFile: MapFile = 'worldMap.json';
   let doc: MapDocument | null = null;
@@ -67,6 +121,12 @@ async function boot(): Promise<void> {
   /** Where the mouse is during a line/rect/box drag, for the live outline. */
   let previewTo: Point | null = null;
   let dirty = false;
+  let spaceEntries: SpaceEntry[] = [];
+  const pendingSpaces = new Map<string, PendingSpace>();
+  /** The rectangle dragged with the Building tool, awaiting its form. */
+  let buildingRect: BuildingRect | null = null;
+  let buildingForm = { name: '', id: '', idEdited: false, side: 'S' as DoorSide, offset: 1 };
+  let buildingMessage = '';
 
   let mode: Mode = 'tile';
   let tileTool: TileTool = 'pencil';
@@ -98,6 +158,10 @@ async function boot(): Promise<void> {
       fileSelect.value = file;
       history.replaceState(null, '', `#${file}`);
       dirty = false;
+      pendingSpaces.clear();
+      buildingRect = null;
+      buildingMessage = '';
+      refreshPending();
       selectedNpcId = null;
       selectedTransition = null;
       selectedMonster = null;
@@ -117,11 +181,36 @@ async function boot(): Promise<void> {
   }
 
   fileSelect.addEventListener('change', () => {
-    if (dirty && !window.confirm('Discard unsaved changes and load the other map?')) {
+    if ((dirty || pendingSpaces.size > 0) && !window.confirm('Discard unsaved changes and load the other map?')) {
       fileSelect.value = currentFile;
       return;
     }
     void loadFile(fileSelect.value as MapFile);
+  });
+
+  function renderFileOptions(): void {
+    fileSelect.innerHTML = '';
+    for (const entry of spaceEntries) {
+      const option = document.createElement('option');
+      option.value = entry.file;
+      option.textContent = entry.file === WORLD_FILE ? `World (${entry.name})` : entry.name;
+      fileSelect.append(option);
+    }
+    fileSelect.value = currentFile;
+  }
+
+  async function refreshSpaceList(): Promise<void> {
+    spaceEntries = await fetchSpaceList();
+    renderFileOptions();
+  }
+
+  function refreshPending(): void {
+    const n = pendingSpaces.size;
+    pendingEl.textContent = n > 0 ? `+${n} new space${n === 1 ? '' : 's'}` : '';
+  }
+
+  window.addEventListener('beforeunload', (event) => {
+    if (dirty || pendingSpaces.size > 0) event.preventDefault();
   });
 
   // --- drawing ----------------------------------------------------------------------------------
@@ -185,8 +274,14 @@ async function boot(): Promise<void> {
 
   /** Live outline of the line/rect/box being dragged, so you can see it before letting go. */
   function drawShapePreview(): void {
-    if (!doc || !painting || !anchor || !previewTo) return;
-    if (mode !== 'tile' || (tileTool !== 'line' && tileTool !== 'rect' && tileTool !== 'box')) return;
+    if (!doc || mode !== 'tile') return;
+    if (tileTool === 'building') {
+      const rect = painting && anchor && previewTo ? rectBetween(anchor, previewTo) : buildingRect;
+      if (rect) drawBuildingPreview(rect, painting);
+      return;
+    }
+    if (!painting || !anchor || !previewTo) return;
+    if (tileTool !== 'line' && tileTool !== 'rect' && tileTool !== 'box') return;
 
     const ghost = new MapDocument(doc.toJSON());
     if (tileTool === 'line') ghost.lineTile(anchor, previewTo, brushTile);
@@ -210,6 +305,46 @@ async function boot(): Promise<void> {
         ctx.strokeRect(x * cellW + 0.5, y * cell + 0.5, cellW - 1, cell - 1);
       }
     }
+    ctx.restore();
+  }
+
+  function rectBetween(a: Point, b: Point): BuildingRect {
+    const x = Math.min(a.x, b.x);
+    const y = Math.min(a.y, b.y);
+    return { x, y, w: Math.abs(a.x - b.x) + 1, h: Math.abs(a.y - b.y) + 1 };
+  }
+
+  /** Ghost of the building ring (and door, once the form fixes it) plus an outline of the footprint. */
+  function drawBuildingPreview(rect: BuildingRect, dragging: boolean): void {
+    if (!doc) return;
+    const big = rect.w >= MIN_BUILDING_W && rect.h >= MIN_BUILDING_H;
+    ctx.save();
+    ctx.globalAlpha = 0.75;
+    for (let y = rect.y; y < rect.y + rect.h; y++) {
+      for (let x = rect.x; x < rect.x + rect.w; x++) {
+        const onRing = x === rect.x || y === rect.y || x === rect.x + rect.w - 1 || y === rect.y + rect.h - 1;
+        if (!onRing) continue;
+        const visual = visualFor('wall', 0);
+        ctx.fillStyle = visual.bg;
+        ctx.fillRect(x * cellW, y * cell, cellW, cell);
+        ctx.fillStyle = visual.fg;
+        ctx.fillText(visual.glyph, x * cellW + cellW / 2, y * cell + cell / 2);
+      }
+    }
+    if (!dragging && big) {
+      const range = doorOffsetRange(rect, buildingForm.side);
+      if (buildingForm.offset >= range.min && buildingForm.offset <= range.max) {
+        const door = doorCells(rect, buildingForm.side, buildingForm.offset).door;
+        const visual = visualFor('door', 0);
+        ctx.fillStyle = visual.bg;
+        ctx.fillRect(door.x * cellW, door.y * cell, cellW, cell);
+        ctx.fillStyle = visual.fg;
+        ctx.fillText(visual.glyph, door.x * cellW + cellW / 2, door.y * cell + cell / 2);
+      }
+    }
+    ctx.strokeStyle = big ? PALETTE.uiGreen : PALETTE.hostileRing;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(rect.x * cellW + 1, rect.y * cell + 1, rect.w * cellW - 2, rect.h * cell - 2);
     ctx.restore();
   }
 
@@ -275,6 +410,16 @@ async function boot(): Promise<void> {
       refreshPalette();
       return;
     }
+    if (tileTool === 'building') {
+      buildingRect = null;
+      buildingMessage = '';
+      painting = true;
+      anchor = at;
+      previewTo = at;
+      refreshInspector();
+      redraw();
+      return;
+    }
     doc.beginStroke();
     painting = true;
     anchor = at;
@@ -290,7 +435,7 @@ async function boot(): Promise<void> {
 
   function handleTileMouseMove(at: Point): void {
     if (!doc || !painting || !anchor) return;
-    if (tileTool === 'line' || tileTool === 'rect' || tileTool === 'box') {
+    if (tileTool === 'line' || tileTool === 'rect' || tileTool === 'box' || tileTool === 'building') {
       previewTo = at;
       redraw();
       return;
@@ -304,6 +449,11 @@ async function boot(): Promise<void> {
 
   function handleTileMouseUp(at: Point): void {
     if (!doc || !painting || !anchor) return;
+    if (tileTool === 'building') {
+      previewTo = null;
+      beginBuildingForm(rectBetween(anchor, at));
+      return;
+    }
     if (tileTool === 'line') doc.lineTile(anchor, at, brushTile);
     if (tileTool === 'rect') doc.rectTile(anchor, at, brushTile);
     if (tileTool === 'box') doc.boxTile(anchor, at, brushTile);
@@ -472,6 +622,12 @@ async function boot(): Promise<void> {
     if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !typing) {
       event.preventDefault();
       if (doc?.undo()) {
+        // Undoing a building patch removes its door transition; its pending interior goes with it.
+        for (const [id, pending] of pendingSpaces) {
+          if (doc.transitionAt(pending.door.x, pending.door.y)?.toSpace !== id) pendingSpaces.delete(id);
+        }
+        refreshPending();
+        buildingRect = null;
         selectedMonster = null;
         selectedTransition = null;
         refreshInspector();
@@ -556,6 +712,7 @@ async function boot(): Promise<void> {
       { id: 'line', label: 'Line' },
       { id: 'rect', label: 'Rect' },
       { id: 'box', label: 'Box' },
+      { id: 'building', label: 'Building' },
       { id: 'fill', label: 'Fill' },
       { id: 'pick', label: 'Pick' },
     ];
@@ -565,11 +722,23 @@ async function boot(): Promise<void> {
       button.className = tileTool === entry.id ? 'on' : '';
       button.addEventListener('click', () => {
         tileTool = entry.id;
+        if (tileTool !== 'building') buildingRect = null;
         refreshPalette();
+        refreshInspector();
+        redraw();
       });
       tools.append(button);
     }
     wrap.append(tools);
+
+    if (tileTool === 'building') {
+      wrap.append(
+        buildHint(
+          `Drag a rectangle on the world map (at least ${MIN_BUILDING_W}x${MIN_BUILDING_H}); a form appears on the right to name it, pick the door and create the building and its interior space.`,
+        ),
+      );
+      return wrap;
+    }
 
     const swatches = document.createElement('div');
     swatches.className = 'swatches';
@@ -684,6 +853,10 @@ async function boot(): Promise<void> {
       inspectorEl.append(selectedTransition ? buildTransitionForm(selectedTransition) : buildHint('No transition selected.'));
       return;
     }
+    if (mode === 'tile' && tileTool === 'building') {
+      inspectorEl.append(buildingRect ? buildBuildingForm(buildingRect) : buildHint('Drag a rectangle to start a new building.'));
+      return;
+    }
     inspectorEl.append(buildHint('Switch to the NPCs, Monsters or Transitions mode to edit markers.'));
   }
 
@@ -694,6 +867,161 @@ async function boot(): Promise<void> {
     span.textContent = labelText;
     row.append(span, input);
     return row;
+  }
+
+  // --- building tool ---------------------------------------------------------------------------
+
+  function beginBuildingForm(rect: BuildingRect): void {
+    buildingRect = rect;
+    buildingMessage = '';
+    buildingForm = { name: '', id: '', idEdited: false, side: 'S', offset: defaultDoorOffset(rect, 'S') };
+    refreshInspector();
+    redraw();
+  }
+
+  function currentBuildingParams(rect: BuildingRect) {
+    return {
+      id: buildingForm.id,
+      name: buildingForm.name,
+      rect,
+      doorSide: buildingForm.side,
+      doorOffset: buildingForm.offset,
+    };
+  }
+
+  function allSpaceIds(): string[] {
+    return [...spaceEntries.map((e) => e.id), ...pendingSpaces.keys()];
+  }
+
+  function buildBuildingForm(rect: BuildingRect): HTMLElement {
+    const form = document.createElement('div');
+    form.className = 'form';
+    const info = document.createElement('div');
+    info.className = 'id-display';
+    info.textContent = `New building ${rect.w}x${rect.h} @ (${rect.x}, ${rect.y})`;
+    form.append(info);
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.placeholder = 'Goodsprings General Store';
+    nameInput.value = buildingForm.name;
+    const idInput = document.createElement('input');
+    idInput.type = 'text';
+    idInput.value = buildingForm.id;
+    const sideSelect = document.createElement('select');
+    for (const [value, label] of [['N', 'North'], ['S', 'South'], ['E', 'East'], ['W', 'West']] as const) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      sideSelect.append(option);
+    }
+    sideSelect.value = buildingForm.side;
+    const offsetInput = document.createElement('input');
+    offsetInput.type = 'number';
+    offsetInput.value = String(buildingForm.offset);
+    const range = (): { min: number; max: number } => doorOffsetRange(rect, buildingForm.side);
+    offsetInput.min = String(range().min);
+    offsetInput.max = String(range().max);
+
+    const messageEl = document.createElement('div');
+    messageEl.className = 'hint';
+    messageEl.style.whiteSpace = 'pre-wrap';
+    const refreshMessage = (): void => {
+      if (!doc) return;
+      const json = doc.toJSON();
+      const errors = validateBuilding(json, allSpaceIds(), currentBuildingParams(rect));
+      const lines = errors.map((e) => `x ${e}`);
+      if (errors.length === 0 && !outsideDoorWalkable(json, rect, buildingForm.side, buildingForm.offset)) {
+        lines.push('! The cell outside the door is not walkable (rock/wall) - the door will open onto nothing.');
+      }
+      if (buildingMessage) lines.unshift(buildingMessage);
+      messageEl.textContent = lines.join('\n');
+      messageEl.style.color = errors.length > 0 || buildingMessage ? PALETTE.uiDanger : PALETTE.uiAmber;
+    };
+
+    nameInput.addEventListener('input', () => {
+      buildingForm.name = nameInput.value;
+      if (!buildingForm.idEdited) {
+        buildingForm.id = slugify(nameInput.value);
+        idInput.value = buildingForm.id;
+      }
+      buildingMessage = '';
+      refreshMessage();
+    });
+    idInput.addEventListener('input', () => {
+      buildingForm.id = idInput.value;
+      buildingForm.idEdited = true;
+      buildingMessage = '';
+      refreshMessage();
+    });
+    sideSelect.addEventListener('change', () => {
+      buildingForm.side = sideSelect.value as DoorSide;
+      buildingForm.offset = defaultDoorOffset(rect, buildingForm.side);
+      offsetInput.value = String(buildingForm.offset);
+      offsetInput.min = String(range().min);
+      offsetInput.max = String(range().max);
+      buildingMessage = '';
+      refreshMessage();
+      redraw();
+    });
+    offsetInput.addEventListener('input', () => {
+      buildingForm.offset = Number(offsetInput.value);
+      buildingMessage = '';
+      refreshMessage();
+      redraw();
+    });
+
+    form.append(field('Name', nameInput), field('Id', idInput), field('Door side', sideSelect));
+    form.append(field(`Door position along that side (${range().min}..${range().max})`, offsetInput));
+    form.append(messageEl);
+
+    const createButton = document.createElement('button');
+    createButton.textContent = 'Create';
+    createButton.addEventListener('click', () => {
+      if (!doc) return;
+      const params = currentBuildingParams(rect);
+      const errors = validateBuilding(doc.toJSON(), allSpaceIds(), params);
+      if (doc.id !== 'world') errors.unshift('Buildings can only be created while editing the world map.');
+      if (errors.length > 0) {
+        buildingMessage = 'Cannot create:';
+        refreshMessage();
+        return;
+      }
+      const result = buildBuilding(params);
+      doc.applyBuildingPatch(result.outdoorPatch);
+      pendingSpaces.set(params.id, {
+        file: uniqueFileName(params.id),
+        json: result.interior,
+        door: { x: result.outdoorPatch.transition.x, y: result.outdoorPatch.transition.y },
+      });
+      buildingRect = null;
+      buildingMessage = '';
+      refreshPending();
+      refreshInspector();
+      redraw();
+      markDirty();
+    });
+    const cancelButton = document.createElement('button');
+    cancelButton.textContent = 'Cancel';
+    cancelButton.addEventListener('click', () => {
+      buildingRect = null;
+      buildingMessage = '';
+      refreshInspector();
+      redraw();
+    });
+    const buttons = document.createElement('div');
+    buttons.className = 'tools';
+    buttons.append(createButton, cancelButton);
+    form.append(buttons);
+    refreshMessage();
+    return form;
+  }
+
+  function uniqueFileName(id: string): string {
+    const taken = new Set([...spaceEntries.map((e) => e.file), ...[...pendingSpaces.values()].map((p) => p.file)]);
+    let file = idToFileName(id);
+    for (let n = 2; taken.has(file); n++) file = idToFileName(`${id}-${n}`);
+    return file;
   }
 
   function buildNpcForm(npc: EditableNpc): HTMLElement {
@@ -882,50 +1210,70 @@ async function boot(): Promise<void> {
     });
   }
 
-  function downloadFallback(json: string): void {
+  function downloadFallback(json: string, fileName: string = currentFile): void {
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = currentFile;
+    link.download = fileName;
     link.click();
     URL.revokeObjectURL(url);
   }
 
+  async function post(file: string, json: string): Promise<boolean> {
+    try {
+      const response = await fetch(`/__map?file=${file}`, { method: 'POST', body: json });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
   async function save(): Promise<void> {
     if (!doc) return;
-    const json = JSON.stringify(doc.toJSON(), null, 2) + '\n';
-    try {
-      const response = await fetch(`/__map?file=${currentFile}`, { method: 'POST', body: json });
-      if (response.ok) {
-        dirty = false;
-        saveButton.textContent = 'Saved';
+    // New interiors first, the world map (which references them) last — a half-finished save then
+    // leaves orphan files rather than a door into a space that does not exist.
+    let failedNew = 0;
+    for (const [id, pending] of [...pendingSpaces]) {
+      const json = JSON.stringify(pending.json, null, 2) + '\n';
+      if (await post(pending.file, json)) {
+        pendingSpaces.delete(id);
       } else {
-        downloadFallback(json);
-        saveButton.textContent = 'Save failed — downloaded instead';
+        failedNew++;
+        downloadFallback(json, pending.file);
       }
-    } catch {
-      // No dev server (e.g. a static build): fall back to a download so work is never lost.
+    }
+    refreshPending();
+
+    const json = JSON.stringify(doc.toJSON(), null, 2) + '\n';
+    if (failedNew > 0) {
       downloadFallback(json);
-      saveButton.textContent = 'Downloaded (no dev server)';
+      saveButton.textContent = 'Save failed — downloaded instead';
+      return;
+    }
+    if (await post(currentFile, json)) {
+      dirty = false;
+      saveButton.textContent = 'Saved';
+      await refreshSpaceList();
+    } else {
+      // No dev server (e.g. a static build) or a rejected write: download so work is never lost.
+      downloadFallback(json);
+      saveButton.textContent = 'Save failed — downloaded instead';
     }
   }
   saveButton.addEventListener('click', () => void save());
 
   // The dev server full-reloads this page whenever a map JSON changes (including our own save), so
   // the open file is kept in the URL hash to land back on the same map afterwards.
-  const hashed = ALLOWED_FILES.find((f) => f === location.hash.slice(1));
-  await loadFile(hashed ?? currentFile);
+  await refreshSpaceList();
+  const hashed = spaceEntries.find((e) => e.file === location.hash.slice(1));
+  await loadFile(hashed?.file ?? currentFile);
 }
 
 const LAYOUT = `
   <header>
     <strong>New Vegas RL — Map Editor</strong>
-    <select id="file">
-      <option value="worldMap.json">World (Goodsprings)</option>
-      <option value="prospectorSaloon.json">Prospector Saloon</option>
-      <option value="docMitchellsHouse.json">Doc Mitchell&#39;s House</option>
-    </select>
+    <select id="file"><option value="worldMap.json">World</option></select>
     <span class="tools" id="mode-tools">
       <button data-mode="tile" class="on">Tiles</button>
       <button data-mode="height">Height</button>
@@ -939,6 +1287,7 @@ const LAYOUT = `
       <button data-zoom="1">+</button>
     </span>
     <span class="grow"></span>
+    <span id="pending"></span>
     <span id="status">&nbsp;</span>
     <button id="save">Save</button>
   </header>
@@ -965,6 +1314,7 @@ const STYLE = `
   button.on { background: ${PALETTE.uiGreen}; border-color: ${PALETTE.uiGreen}; color: #06250f; }
   button.danger { border-color: ${PALETTE.uiDanger}; color: ${PALETTE.uiDanger}; margin-top: 8px; }
   .tools { display: flex; flex-wrap: wrap; gap: 4px; }
+  #pending { color: ${PALETTE.uiAmber}; }
   #status { color: ${PALETTE.uiDim}; min-width: 140px; }
   #load-error { padding: 6px 12px; }
   #load-error.bad { background: #3a1616; color: #ffb4b4; border-bottom: 1px solid ${PALETTE.uiBorder}; }
