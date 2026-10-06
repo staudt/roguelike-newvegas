@@ -77,7 +77,7 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
 - Done: M1–M3 plus M3.5 (see `ROADMAP.md`), kick (`k`), alternate weapon (`x`), ghoul, road tile,
   height-aware line of sight with eye/target heights, two-line status bar under the log.
 - Known gaps: creatures knocked into each other do not fight each other (AI only targets the player);
-  "attacks affect aim" is not modelled; the kick asks no confirmation on peacefuls; no ghoul placed in the
+  "attacks affect aim" is not modelled; no ghoul placed in the
   world map yet; SPECIAL is fixed.
 - M4 steps 1–2 done: sound (`emitSound`), `provoke`, investigate/witness/flee AI, factions, temperament, nerve
   (see `ROADMAP.md`).

@@ -1,6 +1,6 @@
 import type { Creature } from '../entities/Creature';
 import type { Npc } from '../entities/Npc';
-import type { Point } from '../utils/geometry';
+import type { Direction, Point } from '../utils/geometry';
 
 /**
  * Decouples systems from each other (e.g. UI reacting to state changes without TurnManager
@@ -10,8 +10,11 @@ export interface GameEvents {
   'turn-ended': { turnCount: number };
   'npc-interacted': { npc: Npc };
   'space-changed': { spaceId: string };
-  /** Bumped (or F-attacked) something peaceful: ask before starting a fight. */
-  'attack-prompted': { target: Creature };
+  /**
+   * Bumped, F-attacked or kicked something peaceful: ask before starting a fight. `kick` is the
+   * direction when it was a kick that needs confirming, so the answer can finish that kick.
+   */
+  'attack-prompted': { target: Creature; kick?: Direction };
   /** Bumped someone with more than one thing to offer: open the interaction menu. */
   'npc-menu': { npc: Npc };
   'player-died': Record<string, never>;

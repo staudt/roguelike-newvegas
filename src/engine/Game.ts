@@ -230,7 +230,7 @@ export class Game {
     for (const off of this.unsubscribe) off();
     this.events = new EventBus<GameEvents>();
     this.unsubscribe = [
-      this.events.on('attack-prompted', ({ target }) => this.openConfirmMenu(target)),
+      this.events.on('attack-prompted', ({ target, kick }) => this.openConfirmMenu(target, kick)),
       this.events.on('npc-menu', ({ npc }) => this.openNpcMenu(npc)),
       this.events.on('shot-fired', (shot) => {
         this.lastShotEvent = shot;
@@ -474,16 +474,19 @@ export class Game {
     this.setMode({ kind: 'menu' });
   }
 
-  private openConfirmMenu(target: Creature): void {
+  private openConfirmMenu(target: Creature, kick?: Direction): void {
     this.menu.open(
-      `Really attack ${theName(target)}?`,
+      `Really ${kick ? 'kick' : 'attack'} ${theName(target)}?`,
       [
-        { label: 'Yes, attack', hotkey: 'y' },
+        { label: kick ? 'Yes, kick' : 'Yes, attack', hotkey: 'y' },
         { label: 'No', hotkey: 'n' },
       ],
       (index) => {
         this.closeMenu();
-        if (index === 0) confirmAttack(this.state, target, this.events);
+        if (index === 0) {
+          if (kick) kickDirection(this.state, kick, this.events, undefined, true);
+          else confirmAttack(this.state, target, this.events);
+        }
         this.render();
       },
       1, // default to No

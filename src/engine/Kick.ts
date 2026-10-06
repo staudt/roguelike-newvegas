@@ -113,13 +113,15 @@ function knockBack(state: GameState, target: Creature, step: Point, force: numbe
 
 /**
  * `k` + direction: kick the adjacent square. A landed kick does a punch's damage and may shove the
- * target back by Strength against its mass; a survivor turns hostile. Always costs a turn.
+ * target back by Strength against its mass; a survivor turns hostile. Costs a turn, except that a kick
+ * at someone peaceful asks first (`attack-prompted`) and does nothing until `confirmed`.
  */
 export function kickDirection(
   state: GameState,
   direction: Direction,
   events: EventBus<GameEvents>,
   rng: RNG = defaultRNG,
+  confirmed = false,
 ): boolean {
   if (state.gameOver) return false;
   const step = DIRECTION_VECTORS[direction];
@@ -131,6 +133,11 @@ export function kickDirection(
     addMessage(state, 'You kick at thin air.');
     advanceTurn(state, events, rng);
     return true;
+  }
+
+  if (!target.hostile && !confirmed) {
+    events.emit('attack-prompted', { target, kick: direction });
+    return false;
   }
 
   const result = resolveMelee(rng, state.player, target, KICK);

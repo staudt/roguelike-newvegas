@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createMonster } from '../src/entities/Monster';
+import { createNpc } from '../src/entities/Npc';
 import { kickDirection } from '../src/engine/Kick';
 import { swapWeapons, wieldItem } from '../src/engine/TurnManager';
 import type { RNG } from '../src/utils/RNG';
@@ -111,5 +112,46 @@ describe('stagger', () => {
     const { state, events } = buildArena({ width: 16, height: 3, player: { x: 2, y: 1 }, monsters: [ghoul] });
     kickDirection(state, 'E', events, () => 0.5);
     expect(ghoul.x - state.player.x).toBeGreaterThanOrEqual(2); // not back adjacent on the same turn
+  });
+});
+
+describe('kicking a peaceful', () => {
+  const prompts = (emitted: Array<{ name: string; payload: unknown }>) =>
+    emitted.filter((e) => e.name === 'attack-prompted').map((e) => e.payload as { target: unknown; kick?: string });
+
+  it('asks first: no turn, no kick, nobody provoked', () => {
+    const doc = createNpc('doc', 'Doc', 3, 2, ['hi']);
+    const a = buildArena({ width: 12, height: 5, player: { x: 2, y: 2 }, npcs: [doc] });
+    const turns = a.state.turnCount;
+    expect(kickDirection(a.state, 'E', a.events, ALWAYS_HIT)).toBe(false);
+    expect(prompts(a.emitted)).toEqual([{ target: doc, kick: 'E' }]);
+    expect(a.state.turnCount).toBe(turns);
+    expect(doc.hostile).toBe(false);
+    expect(doc.x).toBe(3);
+    expect(a.state.messageLog).toEqual([]);
+  });
+
+  it('asks about a peaceful animal too', () => {
+    const brahmin = createMonster('b', 'brahmin', 3, 2);
+    const a = buildArena({ width: 12, height: 5, player: { x: 2, y: 2 }, monsters: [brahmin] });
+    expect(kickDirection(a.state, 'E', a.events, ALWAYS_HIT)).toBe(false);
+    expect(prompts(a.emitted)).toHaveLength(1);
+  });
+
+  it('once confirmed it kicks, spends the turn and provokes them', () => {
+    const doc = createNpc('doc', 'Doc', 3, 2, ['hi']);
+    const a = buildArena({ width: 12, height: 5, player: { x: 2, y: 2 }, npcs: [doc] });
+    const turns = a.state.turnCount;
+    expect(kickDirection(a.state, 'E', a.events, ALWAYS_HIT, true)).toBe(true);
+    expect(a.state.turnCount).toBe(turns + 1);
+    expect(doc.hostile && doc.provoked).toBe(true);
+  });
+
+  it('a hostile is kicked without asking, and thin air needs no confirmation', () => {
+    const gecko = createMonster('g', 'gecko', 3, 2);
+    const a = buildArena({ width: 12, height: 5, player: { x: 2, y: 2 }, monsters: [gecko] });
+    expect(kickDirection(a.state, 'E', a.events, ALWAYS_HIT)).toBe(true);
+    expect(kickDirection(a.state, 'N', a.events, ALWAYS_HIT)).toBe(true);
+    expect(prompts(a.emitted)).toHaveLength(0);
   });
 });
