@@ -26,6 +26,11 @@ export interface CreatureStats extends Combatant, Carrier {
    * `done`: already passed on (so a call is never relayed twice by the same person).
    */
   alarm: 'pending' | 'done' | null;
+  /**
+   * How a provoked person fights, decided the first time they act: `flee` (unarmed and frightened)
+   * or `fight` (armed, or the unarmed few who stand and brawl). Null until decided or when not provoked.
+   */
+  stance: 'flee' | 'fight' | null;
   /** Natural weapon (teeth, fists): used when nothing is wielded. */
   attack: AttackProfile;
 }

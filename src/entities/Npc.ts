@@ -55,6 +55,7 @@ export function createNpc(
     provoked: false,
     investigate: null,
     alarm: null,
+    stance: null,
     attack: { ...BARE_HANDS, damage: { ...BARE_HANDS.damage }, hitProfile: { ...BARE_HANDS.hitProfile } },
     hp: NPC_HP,
     maxHp: NPC_HP,

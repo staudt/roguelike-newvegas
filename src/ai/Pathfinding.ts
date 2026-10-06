@@ -1,6 +1,6 @@
 import { PATH_NODE_BUDGET } from '../config/constants';
 import { DIRECTION_VECTORS, type Point } from '../utils/geometry';
-import { canStep, type MapGrid } from '../world/GameMap';
+import { canStep, getTileId, type MapGrid } from '../world/GameMap';
 
 const NEIGHBOURS = Object.values(DIRECTION_VECTORS);
 
@@ -24,6 +24,8 @@ function pointOf(k: number): Point {
  * cells that can't be entered — other creatures, doors — except the goal itself, which is always
  * allowed so a hunter can path onto the cell its prey stands on. Returns null if there's no route
  * within the node budget (which also bounds the cost: this runs for every hunter every turn).
+ * With `opensDoors` (people, not animals) a closed door counts as a way through: the walker opens it
+ * when it gets there.
  */
 export function nextStepToward(
   grid: MapGrid,
@@ -31,6 +33,7 @@ export function nextStepToward(
   to: Point,
   blocked: (x: number, y: number) => boolean,
   budget: number = PATH_NODE_BUDGET,
+  opensDoors = false,
 ): Point | null {
   if (from.x === to.x && from.y === to.y) return null;
 
@@ -53,7 +56,8 @@ export function nextStepToward(
 
       const isGoal = next.x === to.x && next.y === to.y;
       if (!isGoal && blocked(next.x, next.y)) continue;
-      if (!canStep(grid, current, next) && !isGoal) continue;
+      const door = opensDoors && getTileId(grid, next.x, next.y) === 'door';
+      if (!door && !canStep(grid, current, next) && !isGoal) continue;
 
       cameFrom.set(nextKey, cellKey(current.x, current.y));
 

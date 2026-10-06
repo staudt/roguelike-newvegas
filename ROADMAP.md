@@ -79,7 +79,12 @@ Step 1 as built: `engine/Sound.ts` (`emitSound`, `provoke`), `provoked` / `inves
 and kick on a creature goes through `provoke`. Scream vs gunshot: a scream alerts every peaceful person in range at once (`alarm: 'pending'`); on their
 next action each shouts it on once from their own spot, pointing at the original trouble, so it ripples through
 a settlement. A gunshot alerts hostiles, but peaceful people only go and look on a
-`GUNSHOT_CURIOSITY_CHANCE` roll and relay nothing (no scream, no danger). Known gaps:
+`GUNSHOT_CURIOSITY_CHANCE` roll and relay nothing (no scream, no danger). People (not animals) open closed
+doors when pathing, so a scream reaches indoors. A provoked person's `stance` is decided on their first action:
+armed (gun or wielded melee weapon) fights; unarmed flees (`UNARMED_FLEE_CHANCE`), screaming again now and then
+while you are in sight (`FLEE_SCREAM_CHANCE`), lashing out only when cornered; a gun-carrier backs off when you
+are within `GUN_KEEP_DISTANCE` (`GUN_KITE_CHANCE` of their actions) and shoots otherwise. Step 2's temperament
+should override these defaults per person (Sunny brawls even unarmed). Known gaps:
 a witness of an outright killing learns nothing unless they see a provoked neighbour, no fleeing yet
 (needs temperament), gunshots only alert hostiles.
 
