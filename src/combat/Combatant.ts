@@ -30,6 +30,8 @@ export interface Combatant {
   ac: number;
   agility: number;
   strength: number;
+  /** Aim with guns. Falls back to agility for creatures that do not define it. */
+  perception?: number;
   /** Base speed in NetHack terms: 12 is a normal human, 24 acts twice per turn. */
   speed: number;
   /** Banked movement; spending NORMAL_SPEED buys one action. */

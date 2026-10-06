@@ -1,9 +1,10 @@
 import type { AttackProfile, Combatant } from '../combat/Combatant';
+import type { Carrier } from '../items/Loadout';
 import type { Monster } from './Monster';
 import type { Npc } from './Npc';
 
 /** What NPCs and monsters have in common: they can fight, notice you, and be hostile or not. */
-export interface CreatureStats extends Combatant {
+export interface CreatureStats extends Combatant, Carrier {
   name: string;
   /** Proper names ("Sunny Smiles") take no article; "gecko" becomes "the gecko". */
   proper: boolean;
@@ -12,6 +13,7 @@ export interface CreatureStats extends Combatant {
   awareness: number;
   /** Once it has noticed you it keeps hunting, even round a corner. */
   alerted: boolean;
+  /** Natural weapon (teeth, fists): used when nothing is wielded. */
   attack: AttackProfile;
 }
 

@@ -38,5 +38,8 @@ export function createMonster(id: string, defId: string, x: number, y: number): 
     // creature gets exactly one action per turn (a full bank gave it a free extra swing).
     energy: 0,
     limbs: createLimbs(def.bodyPlan, def.hp),
+    inventory: [],
+    wielded: null,
+    readied: null,
   };
 }

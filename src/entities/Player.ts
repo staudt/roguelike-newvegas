@@ -34,6 +34,8 @@ export interface Player extends Entity, Combatant {
   inventory: Item[];
   /** Id of the wielded item, or null for bare hands. */
   wielded: string | null;
+  /** Id of the readied ammunition stack, or null. `f` fires only with a wielded gun and ready ammo. */
+  readied: string | null;
 }
 
 export function createPlayer(x: number, y: number): Player {
@@ -52,11 +54,21 @@ export function createPlayer(x: number, y: number): Player {
     maxHp,
     ac: computeAC(special.agility),
     agility: special.agility,
+    perception: special.perception,
     strength: special.strength,
     speed: NORMAL_SPEED,
     energy: NORMAL_SPEED,
     limbs: createLimbs('humanoid', maxHp),
-    inventory: [createItem('combat-knife'), createItem('baseball-bat')],
+    inventory: [
+      createItem('combat-knife'),
+      createItem('baseball-bat'),
+      createItem('9mm-pistol'),
+      createItem('9mm-round', 24),
+      createItem('stimpak'),
+      createItem('stimpak'),
+      createItem('pip-boy'),
+    ],
     wielded: null,
+    readied: null,
   };
 }

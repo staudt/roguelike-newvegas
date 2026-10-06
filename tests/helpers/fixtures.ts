@@ -62,6 +62,7 @@ export function buildArena(opts: ArenaOptions): Arena {
     monsters: opts.monsters ?? [],
     transitions: [],
     places: [],
+    items: [],
     visible: VisibleSet.empty(),
   };
 

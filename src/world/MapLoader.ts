@@ -1,4 +1,4 @@
-import type { Place, Space } from '../engine/GameState';
+import type { GroundItem, Place, Space } from '../engine/GameState';
 import { createMonster } from '../entities/Monster';
 import { createNpc, type InteractionId } from '../entities/Npc';
 import type { Point, Rect } from '../utils/geometry';
@@ -56,6 +56,7 @@ function buildEntities(data: EntityJSON) {
     monsters: (data.monsters ?? []).map((m, i) => createMonster(`${m.defId}-${i + 1}`, m.defId, m.x, m.y)),
     transitions: data.transitions.map((t) => ({ ...t })),
     places: (data.places ?? []).map((pl): Place => ({ name: pl.name, rect: { ...pl.rect } })),
+    items: [] as GroundItem[],
   };
 }
 

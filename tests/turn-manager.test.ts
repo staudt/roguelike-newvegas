@@ -29,6 +29,7 @@ function buildSyntheticState(): { state: GameState; events: EventBus<GameEvents>
     monsters: [],
     transitions: [],
     places: [],
+    items: [],
     visible: VisibleSet.empty(),
   };
 
@@ -228,6 +229,7 @@ describe('tryMovePlayer — transitions between spaces (synthetic two-space fixt
       monsters: [],
       transitions,
       places: [],
+      items: [],
       visible: VisibleSet.empty(),
     });
     const a = mk('a', [{ x: 3, y: 0, toSpace: 'b' }]);

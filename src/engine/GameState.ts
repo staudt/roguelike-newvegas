@@ -1,5 +1,6 @@
 import { DAYLIGHT_SIGHT_RADIUS, INDOOR_SIGHT_RADIUS } from '../config/constants';
 import type { Monster } from '../entities/Monster';
+import type { Item } from '../items/Item';
 import type { Npc } from '../entities/Npc';
 import type { Player } from '../entities/Player';
 import { rectContains, type Point, type Rect } from '../utils/geometry';
@@ -28,6 +29,13 @@ export interface Place {
   rect: Rect;
 }
 
+/** An item lying on the floor. Several can share a cell. */
+export interface GroundItem {
+  x: number;
+  y: number;
+  item: Item;
+}
+
 export interface Space {
   id: string;
   name: string;
@@ -36,6 +44,7 @@ export interface Space {
   grid: TileMap;
   npcs: Npc[];
   monsters: Monster[];
+  items: GroundItem[];
   transitions: Transition[];
   places: Place[];
   /** Cells in view right now. What has been seen before lives in the map (isExplored). */

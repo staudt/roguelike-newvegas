@@ -30,6 +30,7 @@ function worldSpace(map: ChunkedMap, monsters: Monster[] = []): Space {
     monsters,
     transitions: [],
     places: [],
+    items: [],
     visible: VisibleSet.empty(),
   };
 }

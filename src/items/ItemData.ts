@@ -1,25 +1,80 @@
-import type { AttackProfile } from '../combat/Combatant';
+import type { AttackProfile, DamageRange, HitProfile } from '../combat/Combatant';
 
 /**
- * Item definitions, data-driven like everything else. For now only melee weapons exist; guns,
- * ammunition and consumables land with the next milestone (`f` fire needs a wielded gun plus
- * readied ammo, per the design).
+ * Item definitions, data-driven like everything else.
+ *
+ * Kinds: a melee `weapon`; a `gun` (fires `ammo` of its `ammoType` along a straight line, and can
+ * be used as a clumsy club); `ammo` (stacks); a `consumable` (stimpak); and `misc` (junk, quest
+ * items). `flags` hold rules that cut across kinds — an `undroppable` item (the Pip-Boy, later
+ * quest items) refuses to be dropped; an instance may override its definition's flags.
  */
-export interface ItemDef {
+export interface ItemFlags {
+  /** `d` refuses: "You can't let go of the Pip-Boy 3000." Also never sold or stolen. */
+  undroppable?: boolean;
+  /** Plot-relevant. Implies nothing by itself yet; quests will key off it. */
+  quest?: boolean;
+}
+
+interface ItemDefBase {
   id: string;
-  /** Display name without an article: "combat knife". */
+  /** Singular display name without an article: "combat knife". */
   name: string;
+  /** Plural for stacks: "9mm rounds". Defaults to name + "s". */
+  plural?: string;
   glyph: string;
+  fg: string;
+  flags?: ItemFlags;
+}
+
+export interface WeaponDef extends ItemDefBase {
   kind: 'weapon';
-  /** What the weapon does when used in melee. `weaponName` is filled in from `name`. */
+  /** What the weapon does in melee. `weaponName` is filled in from `name`. */
   attack: Omit<AttackProfile, 'weaponName'>;
 }
+
+/** What one shot from a gun does, before the target's armor and the range penalty. */
+export interface ShotProfile {
+  damage: DamageRange;
+  accuracyBonus: number;
+  /** Guns aim for the middle of a person; some weapons spread wider. */
+  hitProfile: HitProfile;
+}
+
+export interface GunDef extends ItemDefBase {
+  kind: 'gun';
+  /** Which ammunition it takes: ammo items with the same `ammoType`. */
+  ammoType: string;
+  /** How far a shot flies, in cells. */
+  range: number;
+  shot: ShotProfile;
+  /** Hitting someone with the gun itself. */
+  butt: Omit<AttackProfile, 'weaponName'>;
+}
+
+export interface AmmoDef extends ItemDefBase {
+  kind: 'ammo';
+  ammoType: string;
+}
+
+export interface ConsumableDef extends ItemDefBase {
+  kind: 'consumable';
+  /** Hit points restored. (Limbs need a doctor.) */
+  heal: number;
+}
+
+export interface MiscDef extends ItemDefBase {
+  kind: 'misc';
+}
+
+export type ItemDef = WeaponDef | GunDef | AmmoDef | ConsumableDef | MiscDef;
+export type ItemKind = ItemDef['kind'];
 
 export const ITEMS: Record<string, ItemDef> = {
   'combat-knife': {
     id: 'combat-knife',
     name: 'combat knife',
     glyph: ')',
+    fg: '#b8c4cc',
     kind: 'weapon',
     attack: {
       damage: { min: 3, max: 6 },
@@ -33,6 +88,7 @@ export const ITEMS: Record<string, ItemDef> = {
     id: 'baseball-bat',
     name: 'baseball bat',
     glyph: ')',
+    fg: '#c9a46b',
     kind: 'weapon',
     attack: {
       damage: { min: 4, max: 8 },
@@ -41,6 +97,58 @@ export const ITEMS: Record<string, ItemDef> = {
       hitProfile: { head: 22, torso: 40, arm: 20, leg: 18 },
       strengthBonus: true,
     },
+  },
+  '9mm-pistol': {
+    id: '9mm-pistol',
+    name: '9mm pistol',
+    glyph: ')',
+    fg: '#8fa0b0',
+    kind: 'gun',
+    ammoType: '9mm',
+    range: 10,
+    shot: {
+      damage: { min: 4, max: 9 },
+      accuracyBonus: 5,
+      hitProfile: { head: 12, torso: 50, arm: 19, leg: 19 },
+    },
+    butt: {
+      damage: { min: 1, max: 2 },
+      accuracyBonus: -5,
+      hitProfile: { head: 10, torso: 45, arm: 20, leg: 25 },
+      strengthBonus: false,
+    },
+  },
+  '9mm-round': {
+    id: '9mm-round',
+    name: '9mm round',
+    plural: '9mm rounds',
+    glyph: ')',
+    fg: '#d4a84a',
+    kind: 'ammo',
+    ammoType: '9mm',
+  },
+  stimpak: {
+    id: 'stimpak',
+    name: 'stimpak',
+    glyph: '!',
+    fg: '#e05a5a',
+    kind: 'consumable',
+    heal: 25,
+  },
+  'pip-boy': {
+    id: 'pip-boy',
+    name: 'Pip-Boy 3000',
+    glyph: '(',
+    fg: '#7fd0ff',
+    kind: 'misc',
+    flags: { undroppable: true, quest: true },
+  },
+  'gecko-hide': {
+    id: 'gecko-hide',
+    name: 'gecko hide',
+    glyph: '%',
+    fg: '#7fbf5f',
+    kind: 'misc',
   },
 };
 
@@ -59,6 +167,14 @@ export function itemDef(defId: string): ItemDef {
   return def;
 }
 
+/** What hitting someone with this item does. Only weapons and guns are meant to be wielded. */
 export function attackProfileFor(def: ItemDef): AttackProfile {
-  return { ...def.attack, weaponName: def.name };
+  if (def.kind === 'weapon') return { ...def.attack, weaponName: def.name };
+  if (def.kind === 'gun') return { ...def.butt, weaponName: def.name };
+  return BARE_HANDS;
+}
+
+/** Can this be wielded (weapons and guns)? Ammo, stimpaks and junk cannot. */
+export function isWieldable(def: ItemDef): boolean {
+  return def.kind === 'weapon' || def.kind === 'gun';
 }

@@ -16,6 +16,16 @@ export interface MonsterDef {
   attack: AttackProfile;
   awareness: number;
   hostile: boolean;
+  /** Things it may leave behind when it dies, each rolled independently. */
+  loot?: LootEntry[];
+}
+
+export interface LootEntry {
+  defId: string;
+  /** Percent chance 1-100. */
+  chance: number;
+  /** Stack size for ammunition (inclusive range); ignored for other items. */
+  count?: { min: number; max: number };
 }
 
 /**
@@ -43,6 +53,7 @@ export const MONSTERS: Record<string, MonsterDef> = {
     },
     awareness: 8,
     hostile: true,
+    loot: [{ defId: 'gecko-hide', chance: 35 }],
   },
   bloatfly: {
     id: 'bloatfly',
