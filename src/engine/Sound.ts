@@ -1,5 +1,6 @@
 import {
   GUN_NOISE_RADIUS,
+  GUNSHOT_CURIOSITY_CHANCE,
   SCREAM_NOISE_RADIUS,
   SHOUT_NOISE_RADIUS,
 } from '../config/constants';
@@ -7,13 +8,16 @@ import { capitalize } from '../combat/Narration';
 import { theName, type Creature } from '../entities/Creature';
 import type { Player } from '../entities/Player';
 import { chebyshevDistance, type Point } from '../utils/geometry';
+import { randomInt, type RNG } from '../utils/RNG';
 import { addMessage, getActiveSpace, type GameState } from './GameState';
 
 /**
  * What a noise is. Each kind has a radius (Chebyshev cells) and says who it draws:
- * - `gunshot`: every hostile within range knows where the trouble is (peacefuls stay put).
- * - `scream`: a pained cry. Peaceful people within range come and look.
- * - `shout`: a deliberate call for help or to arms. Same listeners, further reach.
+ * - `gunshot`: every hostile within range knows where the trouble is. Peaceful people only
+ *   sometimes go to see (GUNSHOT_CURIOSITY_CHANCE) and pass nothing on: a shot alone is no alarm.
+ * - `scream`: a pained cry. Peaceful people in range are alerted at once and rush to the source;
+ *   each passes the alarm on once with a shout, so it spreads through a settlement.
+ * - `shout`: a deliberate call for help. Same listeners, further reach.
  */
 export type SoundKind = 'gunshot' | 'scream' | 'shout';
 
@@ -29,31 +33,51 @@ const HEARD: Record<Exclude<SoundKind, 'gunshot'>, string> = {
 };
 
 /**
- * Makes a noise at `at` and lets everyone in range react to it. `source` never hears itself.
- * Only creatures in the active space are touched, and the creature loop already ignores anyone far
- * from the player, so distant parts of the world never join in.
+ * Makes a noise at `from` and lets everyone in range react to it. `source` never hears itself, and
+ * `goal` is where listeners go to look (the noise's own spot, unless a relayed call points back at
+ * the original trouble). Only creatures in the active space are touched, and the creature loop
+ * already ignores anyone far from the player, so distant parts of the world never join in.
+ * Gunshot curiosity rolls on `rng`; with none given, peaceful people pay no attention.
  */
 export function emitSound(
   state: GameState,
-  at: Point,
+  from: Point,
   kind: SoundKind,
   source?: Creature | Player,
+  rng?: RNG,
+  goal: Point = from,
 ): void {
   const space = getActiveSpace(state);
   const radius = SOUND_RADIUS[kind];
 
   for (const list of [space.monsters, space.npcs] as Creature[][]) {
     for (const c of list) {
-      if (c === source || chebyshevDistance(c, at) > radius) continue;
+      if (c === source || chebyshevDistance(c, from) > radius) continue;
       if (kind === 'gunshot') {
         if (c.hostile) c.alerted = true;
-      } else if (!c.hostile && c.kind === 'npc' && !c.investigate) {
-        c.investigate = { x: at.x, y: at.y };
+        else if (c.kind === 'npc' && !c.investigate && rng && randomInt(rng, 1, 100) <= GUNSHOT_CURIOSITY_CHANCE) {
+          c.investigate = { x: goal.x, y: goal.y };
+        }
+      } else if (!c.hostile && c.kind === 'npc' && c.alarm === null) {
+        c.alarm = 'pending';
+        c.investigate = { x: goal.x, y: goal.y };
       }
     }
   }
 
-  if (kind !== 'gunshot' && !space.visible.has(at.x, at.y)) addMessage(state, HEARD[kind]);
+  if (kind !== 'gunshot' && !space.visible.has(from.x, from.y) && chebyshevDistance(state.player, from) <= radius) {
+    addMessage(state, HEARD[kind]);
+  }
+}
+
+/** A person who heard a scream passes it on with a shout of their own, pointing at the trouble. */
+export function relayAlarm(state: GameState, relayer: Creature): void {
+  relayer.alarm = 'done';
+  if (!relayer.investigate) return;
+  if (getActiveSpace(state).visible.has(relayer.x, relayer.y)) {
+    addMessage(state, `${capitalize(theName(relayer))} shouts for help!`);
+  }
+  emitSound(state, relayer, 'shout', relayer, undefined, relayer.investigate);
 }
 
 /**
@@ -69,6 +93,7 @@ export function provoke(state: GameState, victim: Creature, killed: boolean): vo
     victim.hostile = true;
     victim.alerted = true;
     victim.investigate = null;
+    victim.alarm = null;
     if (wasPeaceful) victim.provoked = true;
   }
 

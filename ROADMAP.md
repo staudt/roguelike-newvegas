@@ -76,7 +76,10 @@ on sight; (4) creatures fighting each other (targets other than the player).
 
 Step 1 as built: `engine/Sound.ts` (`emitSound`, `provoke`), `provoked` / `investigate` on creatures,
 `SCREAM_NOISE_RADIUS` / `SHOUT_NOISE_RADIUS`, AI `joinsTrouble` and `investigateNoise`. Every blow, bullet
-and kick on a creature goes through `provoke`. Known gaps: nobody *shouts* yet (only the first scream),
+and kick on a creature goes through `provoke`. Scream vs gunshot: a scream alerts every peaceful person in range at once (`alarm: 'pending'`); on their
+next action each shouts it on once from their own spot, pointing at the original trouble, so it ripples through
+a settlement. A gunshot alerts hostiles, but peaceful people only go and look on a
+`GUNSHOT_CURIOSITY_CHANCE` roll and relay nothing (no scream, no danger). Known gaps:
 a witness of an outright killing learns nothing unless they see a provoked neighbour, no fleeing yet
 (needs temperament), gunshots only alert hostiles.
 

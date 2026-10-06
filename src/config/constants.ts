@@ -111,3 +111,6 @@ export const SCREAM_NOISE_RADIUS = 12;
 
 /** A call for help carries further than a scream: it is shouted on purpose. */
 export const SHOUT_NOISE_RADIUS = 16;
+
+/** Percent chance that a peaceful person in earshot of a gunshot goes to see. A shot alone is no alarm. */
+export const GUNSHOT_CURIOSITY_CHANCE = 30;

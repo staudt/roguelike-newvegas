@@ -21,6 +21,11 @@ export interface CreatureStats extends Combatant, Carrier {
   provoked: boolean;
   /** A noise to go and check out: a peaceful heard trouble and walks there to see. */
   investigate: Point | null;
+  /**
+   * Heard a scream or a call for help. `pending`: alerted, and will pass it on with their next action;
+   * `done`: already passed on (so a call is never relayed twice by the same person).
+   */
+  alarm: 'pending' | 'done' | null;
   /** Natural weapon (teeth, fists): used when nothing is wielded. */
   attack: AttackProfile;
 }

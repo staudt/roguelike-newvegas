@@ -184,3 +184,53 @@ describe('witnessing the fight', () => {
     expect(neighbour.investigate).toBeNull();
   });
 });
+
+describe('scream versus gunshot', () => {
+  it('a scream alerts people at once; a gunshot only sometimes draws a look, and raises no alarm', () => {
+    const listener = person('l', 4, 0);
+    const a = buildArena({ width: 20, height: 1, player: { x: 0, y: 0 }, npcs: [listener] });
+    emitSound(a.state, { x: 0, y: 0 }, 'gunshot', undefined, () => 0.999);
+    expect(listener.investigate).toBeNull();
+    emitSound(a.state, { x: 0, y: 0 }, 'gunshot', undefined, () => 0);
+    expect(listener.investigate).toEqual({ x: 0, y: 0 });
+    expect(listener.alarm).toBeNull();
+
+    listener.investigate = null;
+    emitSound(a.state, { x: 0, y: 0 }, 'scream');
+    expect(listener.investigate).toEqual({ x: 0, y: 0 });
+    expect(listener.alarm).toBe('pending');
+  });
+
+  it('someone who hears a scream passes it on, reaching people the scream itself missed', () => {
+    const sunny = person('Sunny', 8, 0);
+    const far = person('Far', 8 + SCREAM_NOISE_RADIUS, 0); // out of the scream's range, in the shout's
+    const a = buildArena({ width: 40, height: 1, player: { x: 39, y: 0 }, npcs: [sunny, far] });
+    emitSound(a.state, { x: 0, y: 0 }, 'scream');
+    expect(far.alarm).toBeNull();
+    tick(a);
+    expect(sunny.alarm).toBe('done');
+    expect(sunny.x).toBe(8); // relaying took her action
+    expect(far.alarm).not.toBeNull(); // alerted; may already have relayed it too
+    expect(far.investigate).toEqual({ x: 0, y: 0 }); // sent to the original trouble, not to Sunny
+  });
+
+  it('each person relays once, then walks to the scream and is free to react again later', () => {
+    const sunny = person('Sunny', 6, 0);
+    const a = buildArena({ width: 40, height: 1, player: { x: 39, y: 0 }, npcs: [sunny] });
+    emitSound(a.state, { x: 0, y: 0 }, 'scream');
+    const log = () => a.state.messageLog.filter((m) => m.includes('shout')).length;
+    tick(a);
+    const afterFirst = log();
+    for (let i = 0; i < 12; i++) tick(a);
+    expect(log()).toBe(afterFirst);
+    expect(sunny.investigate).toBeNull();
+    expect(sunny.alarm).toBeNull();
+  });
+
+  it('a gunshot-curious person who then hears a scream is still alerted and relays it', () => {
+    const p = person('p', 5, 0);
+    p.investigate = { x: 20, y: 0 };
+    const a = buildArena({ width: 40, height: 1, player: { x: 39, y: 0 }, npcs: [p] });
+    emitSound(a.state, { x: 0, y: 0 }, 'scream');
+  });
+});

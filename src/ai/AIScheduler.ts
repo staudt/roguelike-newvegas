@@ -9,6 +9,7 @@ import {
 import { theName, type Creature } from '../entities/Creature';
 import { capitalize } from '../combat/Narration';
 import { creatureAttacks, fireProjectile, shotPath } from '../engine/Combat';
+import { relayAlarm } from '../engine/Sound';
 import type { EventBus, GameEvents } from '../engine/EventBus';
 import { addMessage, getActiveSpace, type GameState } from '../engine/GameState';
 import { canFire, consumeRound, findItem, readiedStack, wieldedGun } from '../items/Carrying';
@@ -63,8 +64,9 @@ export function runCreatureTurns(state: GameState, rng: RNG, events: EventBus<Ga
         actAsHostile(state, creature, rng, events, occupancy);
       } else if (creature.kind === 'monster') {
         wander(state, creature, rng, occupancy);
-      } else if (!joinsTrouble(state, creature) && creature.investigate) {
-        investigateNoise(state, creature, occupancy);
+      } else if (!joinsTrouble(state, creature)) {
+        if (creature.alarm === 'pending') relayAlarm(state, creature);
+        else if (creature.investigate) investigateNoise(state, creature, occupancy);
       }
     }
 
@@ -106,6 +108,7 @@ function joinsTrouble(state: GameState, npc: Creature): boolean {
   npc.provoked = true;
   npc.alerted = true;
   npc.investigate = null;
+  npc.alarm = null;
   if (canSee(state, npc)) addMessage(state, `${capitalize(theName(npc))} joins the fight!`);
   return true;
 }
@@ -113,15 +116,13 @@ function joinsTrouble(state: GameState, npc: Creature): boolean {
 /** Walks toward a noise and stops next to where it came from; gives up if there is no way there. */
 function investigateNoise(state: GameState, npc: Creature, occupancy: Occupancy): void {
   const goal = npc.investigate!;
-  if (chebyshevDistance(npc, goal) <= 1) {
-    npc.investigate = null;
-    return;
-  }
-  const step = nextStepToward(getActiveSpace(state).grid, npc, goal, (x, y) =>
-    isOccupied(state, occupancy, x, y),
-  );
+  const step =
+    chebyshevDistance(npc, goal) <= 1
+      ? null
+      : nextStepToward(getActiveSpace(state).grid, npc, goal, (x, y) => isOccupied(state, occupancy, x, y));
   if (!step) {
     npc.investigate = null;
+    npc.alarm = null;
     return;
   }
   moveTo(occupancy, npc, step.x, step.y);

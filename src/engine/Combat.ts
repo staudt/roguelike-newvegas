@@ -137,7 +137,7 @@ export function fireProjectile(
   const isPlayer = shooter.kind === 'player';
   const party = isPlayer ? YOU : partyFor(shooter as Creature);
 
-  emitSound(state, shooter, 'gunshot', shooter);
+  emitSound(state, shooter, 'gunshot', shooter, rng);
   const crowd = adjacentHostiles(state, shooter);
 
   const flight = shotPath(state, shooter, step, gun.range);

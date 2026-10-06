@@ -25,6 +25,7 @@ export function createMonster(id: string, defId: string, x: number, y: number): 
     alerted: false,
     provoked: false,
     investigate: null,
+    alarm: null,
     attack: {
       ...def.attack,
       damage: { ...def.attack.damage },
