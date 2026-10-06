@@ -1,4 +1,5 @@
 import { DAYLIGHT_SIGHT_RADIUS, INDOOR_SIGHT_RADIUS } from '../config/constants';
+import type { Monster } from '../entities/Monster';
 import type { Npc } from '../entities/Npc';
 import type { Player } from '../entities/Player';
 import type { Point } from '../utils/geometry';
@@ -31,6 +32,7 @@ export interface Space {
   worldOrigin: Point;
   grid: MapGrid;
   npcs: Npc[];
+  monsters: Monster[];
   transitions: Transition[];
   visible: Uint8Array;
   explored: Uint8Array;

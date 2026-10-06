@@ -28,6 +28,7 @@ function buildSyntheticState(): { state: GameState; events: EventBus<GameEvents>
     worldOrigin: { x: 0, y: 0 },
     grid,
     npcs: [npc],
+    monsters: [],
     transitions: [],
     visible: new Uint8Array(25),
     explored: new Uint8Array(25),

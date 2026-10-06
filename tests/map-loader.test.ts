@@ -14,7 +14,8 @@ function buildFixture(): SpaceJSON {
     height: 2,
     tiles: ['floor', 'floor', 'door', 'wall', 'floor', 'wall'],
     heights: [0, 0, 0, 0, 0, 0],
-    npcs: [{ id: 'npc-1', name: 'Fixture NPC', x: 4, y: 7, dialogue: ['Hello there.'], fg: '#abcdef' }],
+    npcs: [{ id: 'npc-1', name: 'Fixture NPC', x: 4, y: 7, dialogue: ['Hello there.'], fg: '#abcdef', interactions: ['talk'] }],
+    monsters: [{ defId: 'gecko', x: 4, y: 8 }],
     transitions: [{ x: 5, y: 7, toSpace: 'world' }],
   };
 }

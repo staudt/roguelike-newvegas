@@ -36,3 +36,22 @@ export const INDOOR_SIGHT_RADIUS = 10;
 
 /** How many player turns a monologue balloon stays on screen after an NPC speaks. */
 export const BALLOON_TURNS = 4;
+
+/**
+ * The cost of one action, and therefore the speed of an ordinary creature (NetHack's model): each
+ * creature banks its speed in movement points every turn and spends NORMAL_SPEED per action, so
+ * speed 24 acts twice per turn, speed 18 alternates one and two, and speed 6 acts every other turn.
+ */
+export const NORMAL_SPEED = 12;
+
+/** A hard stop on actions per creature per turn, so a silly speed value can't hang the game. */
+export const MAX_ACTIONS_PER_TURN = 8;
+
+/** Percent chance per action that an idle peaceful creature (a brahmin) takes a step. */
+export const PEACEFUL_WANDER_CHANCE = 20;
+
+/** Budget for path searches — enough to route round a building, small enough to run every turn. */
+export const PATH_NODE_BUDGET = 600;
+
+/** A hostile that has noticed you keeps hunting until you are this many times its awareness away. */
+export const LOSE_TRACK_FACTOR = 2.5;

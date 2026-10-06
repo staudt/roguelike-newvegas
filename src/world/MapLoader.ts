@@ -1,5 +1,6 @@
 import type { Space } from '../engine/GameState';
-import { createNpc, type Npc } from '../entities/Npc';
+import { createMonster } from '../entities/Monster';
+import { createNpc, type InteractionId, type Npc } from '../entities/Npc';
 import type { Point } from '../utils/geometry';
 import type { MapGrid } from './GameMap';
 
@@ -20,7 +21,18 @@ export interface SpaceJSON {
   tiles: string[];
   /** Row-major terrain height 0..4, length width*height. Ignored for non-ground tiles. */
   heights: number[];
-  npcs: Array<{ id: string; name: string; x: number; y: number; dialogue: string[]; fg?: string }>;
+  npcs: Array<{
+    id: string;
+    name: string;
+    x: number;
+    y: number;
+    dialogue: string[];
+    fg?: string;
+    /** Omitted means just 'talk'. More than one opens a menu on bump. */
+    interactions?: InteractionId[];
+  }>;
+  /** Creatures placed from the monster table. Omitted means none. */
+  monsters?: Array<{ defId: string; x: number; y: number }>;
   transitions: Array<{ x: number; y: number; toSpace: string }>;
   /** Where the player starts out. Only meaningful on the space the game boots into ('world'). */
   playerStart?: Point;
@@ -46,7 +58,8 @@ export function loadSpace(data: SpaceJSON): Space {
     heights: Uint8Array.from(data.heights),
   };
 
-  const npcs: Npc[] = data.npcs.map((n) => createNpc(n.id, n.name, n.x, n.y, n.dialogue, n.fg));
+  const npcs: Npc[] = data.npcs.map((n) => createNpc(n.id, n.name, n.x, n.y, n.dialogue, n.fg, n.interactions));
+  const monsters = (data.monsters ?? []).map((m, i) => createMonster(`${m.defId}-${i + 1}`, m.defId, m.x, m.y));
 
   return {
     id: data.id,
@@ -55,6 +68,7 @@ export function loadSpace(data: SpaceJSON): Space {
     worldOrigin: { ...data.worldOrigin },
     grid,
     npcs,
+    monsters,
     transitions: data.transitions.map((t) => ({ ...t })),
     visible: new Uint8Array(expected),
     explored: new Uint8Array(expected),
@@ -79,7 +93,9 @@ export function serializeSpace(space: Space): SpaceJSON {
       y: n.y,
       dialogue: [...n.dialogue],
       fg: n.fg,
+      interactions: [...n.interactions],
     })),
+    monsters: space.monsters.map((m) => ({ defId: m.defId, x: m.x, y: m.y })),
     transitions: space.transitions.map((t) => ({ ...t })),
   };
 }

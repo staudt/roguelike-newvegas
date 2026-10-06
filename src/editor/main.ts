@@ -3,7 +3,9 @@ import { isConnectedWall, wallGlyph } from '../ui/WallGlyphs';
 import { linePoints, type Point } from '../utils/geometry';
 import { TILES, visualFor } from '../world/Tile';
 import type { SpaceJSON } from '../world/MapLoader';
-import { type EditableNpc, type EditableTransition, MapDocument } from './MapDocument';
+import { INTERACTION_LABELS, type InteractionId } from '../entities/Npc';
+import { MONSTERS } from '../entities/MonsterData';
+import { type EditableMonster, type EditableNpc, type EditableTransition, MapDocument } from './MapDocument';
 
 /**
  * The map editor.
@@ -16,13 +18,13 @@ import { type EditableNpc, type EditableTransition, MapDocument } from './MapDoc
  * tile table, palette and on-disk JSON contract with the game, and nothing else.
  */
 
-const ALLOWED_FILES = ['worldMap.json', 'prospectorSaloon.json'] as const;
+const ALLOWED_FILES = ['worldMap.json', 'prospectorSaloon.json', 'docMitchellsHouse.json'] as const;
 type MapFile = (typeof ALLOWED_FILES)[number];
 
 const DEFAULT_CELL = 22;
 const ZOOM_STEPS = [10, 14, 18, 22, 28, 36];
 
-type Mode = 'tile' | 'height' | 'npc' | 'transition';
+type Mode = 'tile' | 'height' | 'npc' | 'monster' | 'transition';
 type TileTool = 'pencil' | 'line' | 'rect' | 'fill' | 'pick';
 type HeightTool = 'raise' | 'lower' | 'set';
 
@@ -69,6 +71,8 @@ async function boot(): Promise<void> {
 
   let selectedNpcId: string | null = null;
   let selectedTransition: EditableTransition | null = null;
+  let selectedMonster: EditableMonster | null = null;
+  let brushMonster: string = Object.keys(MONSTERS)[0]!;
 
   let painting = false;
   let anchor: Point | null = null;
@@ -77,14 +81,21 @@ async function boot(): Promise<void> {
 
   // --- loading --------------------------------------------------------------------------------
 
+  let loadSerial = 0;
+
   async function loadFile(file: MapFile): Promise<void> {
+    const serial = ++loadSerial;
     try {
       const data = await fetchSpace(file);
+      if (serial !== loadSerial) return; // a newer load superseded this one
       doc = new MapDocument(data);
       currentFile = file;
+      fileSelect.value = file;
+      history.replaceState(null, '', `#${file}`);
       dirty = false;
       selectedNpcId = null;
       selectedTransition = null;
+      selectedMonster = null;
       loadError.textContent = '';
       loadError.className = '';
       saveButton.textContent = 'Save';
@@ -145,6 +156,11 @@ async function boot(): Promise<void> {
     for (const transition of doc.transitions) {
       drawMarker(transition.x, transition.y, '>', PALETTE.interactableFg, transition === selectedTransition);
     }
+    for (const monster of doc.monsters) {
+      const def = MONSTERS[monster.defId];
+      drawMarker(monster.x, monster.y, def?.glyph ?? '?', def?.fg ?? PALETTE.hostileRing, monster === selectedMonster);
+      if (def?.hostile) drawRing(monster.x, monster.y);
+    }
     for (const npc of doc.npcs) {
       drawMarker(npc.x, npc.y, '@', npc.fg ?? PALETTE.npcFg, npc.id === selectedNpcId);
     }
@@ -154,7 +170,24 @@ async function boot(): Promise<void> {
     }
   }
 
-  function drawMarker(x: number, y: number, glyph: string, fg: string, selected: boolean): void {
+  /** Thin red ring marking a hostile monster (the selection box is a square, so the two read differently). */
+  function drawRing(wx: number, wy: number): void {
+    const x = wx - (doc?.worldOrigin.x ?? 0);
+    const y = wy - (doc?.worldOrigin.y ?? 0);
+    ctx.save();
+    ctx.strokeStyle = PALETTE.hostileRing;
+    ctx.globalAlpha = 0.8;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(x * cell + cell / 2, y * cell + cell / 2, cell / 2 - 1, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** Markers (NPCs, monsters, transitions, player start) are stored in WORLD coordinates; the grid is local. */
+  function drawMarker(wx: number, wy: number, glyph: string, fg: string, selected: boolean): void {
+    const x = wx - (doc?.worldOrigin.x ?? 0);
+    const y = wy - (doc?.worldOrigin.y ?? 0);
     const px = x * cell;
     const py = y * cell;
     ctx.fillStyle = fg;
@@ -179,6 +212,10 @@ async function boot(): Promise<void> {
       x: Math.floor(((event.clientX - box.left) / box.width) * w),
       y: Math.floor(((event.clientY - box.top) / box.height) * h),
     };
+  }
+
+  function toWorld(local: Point): Point {
+    return { x: local.x + (doc?.worldOrigin.x ?? 0), y: local.y + (doc?.worldOrigin.y ?? 0) };
   }
 
   function markDirty(): void {
@@ -284,6 +321,35 @@ async function boot(): Promise<void> {
     markDirty();
   }
 
+  // --- input: monster mode ----------------------------------------------------------------
+
+  function handleMonsterMouseDown(at: Point): void {
+    if (!doc) return;
+    doc.beginStroke();
+    const existing = doc.monsterAt(at.x, at.y);
+    if (existing) {
+      selectedMonster = existing;
+    } else {
+      selectedMonster = doc.addMonster(brushMonster, at.x, at.y);
+      markDirty();
+    }
+    painting = true;
+    anchor = at;
+    refreshInspector();
+    redraw();
+  }
+
+  function handleMonsterMouseMove(at: Point): void {
+    if (!doc || !painting || !selectedMonster || !anchor) return;
+    if (at.x === anchor.x && at.y === anchor.y) return;
+    if (doc.monsterAt(at.x, at.y)) return;
+    doc.moveMonster(selectedMonster, at.x, at.y);
+    anchor = at;
+    refreshInspector();
+    redraw();
+    markDirty();
+  }
+
   // --- input: transition mode ------------------------------------------------------------------
 
   function handleTransitionMouseDown(at: Point): void {
@@ -319,8 +385,11 @@ async function boot(): Promise<void> {
     const at = cellAt(event);
     if (mode === 'tile') handleTileMouseDown(at);
     if (mode === 'height') handleHeightMouseDown(at);
-    if (mode === 'npc') handleNpcMouseDown(at);
-    if (mode === 'transition') handleTransitionMouseDown(at);
+    if (!doc.inBounds(at.x, at.y)) return;
+    const world = toWorld(at);
+    if (mode === 'npc') handleNpcMouseDown(world);
+    if (mode === 'monster') handleMonsterMouseDown(world);
+    if (mode === 'transition') handleTransitionMouseDown(world);
   });
 
   canvas.addEventListener('mousemove', (event) => {
@@ -330,8 +399,11 @@ async function boot(): Promise<void> {
     status.textContent = `${at.x}, ${at.y}   ${doc.tileAt(at.x, at.y)}${doc.tileAt(at.x, at.y) === 'ground' ? ` h${height}` : ''}`;
     if (mode === 'tile') handleTileMouseMove(at);
     if (mode === 'height') handleHeightMouseMove(at);
-    if (mode === 'npc') handleNpcMouseMove(at);
-    if (mode === 'transition') handleTransitionMouseMove(at);
+    if (!doc.inBounds(at.x, at.y)) return;
+    const world = toWorld(at);
+    if (mode === 'npc') handleNpcMouseMove(world);
+    if (mode === 'monster') handleMonsterMouseMove(world);
+    if (mode === 'transition') handleTransitionMouseMove(world);
   });
 
   window.addEventListener('mouseup', (event) => {
@@ -348,6 +420,8 @@ async function boot(): Promise<void> {
     if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !typing) {
       event.preventDefault();
       if (doc?.undo()) {
+        selectedMonster = null;
+        selectedTransition = null;
         refreshInspector();
         redraw();
       }
@@ -363,6 +437,14 @@ async function boot(): Promise<void> {
         doc?.beginStroke();
         doc?.removeNpc(selectedNpcId);
         selectedNpcId = null;
+        refreshInspector();
+        redraw();
+        markDirty();
+      }
+      if (mode === 'monster' && selectedMonster) {
+        doc?.beginStroke();
+        doc?.removeMonster(selectedMonster);
+        selectedMonster = null;
         refreshInspector();
         redraw();
         markDirty();
@@ -401,6 +483,7 @@ async function boot(): Promise<void> {
     if (mode === 'tile') paletteEl.append(buildTilePalette());
     if (mode === 'height') paletteEl.append(buildHeightPalette());
     if (mode === 'npc') paletteEl.append(buildHint('Click an empty cell to place an NPC. Drag an existing marker to move it. Edit it in the panel on the right. Delete/Backspace removes the selected NPC.'));
+    if (mode === 'monster') paletteEl.append(buildMonsterPalette());
     if (mode === 'transition') paletteEl.append(buildHint('Click an empty cell to place a transition. Drag an existing marker to move it. Set its destination space in the panel on the right. Delete/Backspace removes the selected transition.'));
   }
 
@@ -460,6 +543,31 @@ async function boot(): Promise<void> {
     return wrap;
   }
 
+  function buildMonsterPalette(): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.append(buildHint('Pick a type, then click an empty cell to place one. Click an existing monster to select it, drag to move. Delete/Backspace removes the selected monster.'));
+    const list = document.createElement('div');
+    list.className = 'monster-list';
+    for (const def of Object.values(MONSTERS)) {
+      const button = document.createElement('button');
+      button.className = `monster-row${brushMonster === def.id ? ' on' : ''}`;
+      const glyph = document.createElement('span');
+      glyph.className = 'monster-glyph';
+      glyph.style.color = def.fg;
+      glyph.textContent = def.glyph;
+      const label = document.createElement('span');
+      label.textContent = def.hostile ? def.name : `${def.name} (peaceful)`;
+      button.append(glyph, label);
+      button.addEventListener('click', () => {
+        brushMonster = def.id;
+        refreshPalette();
+      });
+      list.append(button);
+    }
+    wrap.append(list);
+    return wrap;
+  }
+
   function buildHeightPalette(): HTMLElement {
     const wrap = document.createElement('div');
 
@@ -515,11 +623,15 @@ async function boot(): Promise<void> {
       inspectorEl.append(npc ? buildNpcForm(npc) : buildHint('No NPC selected.'));
       return;
     }
+    if (mode === 'monster') {
+      inspectorEl.append(selectedMonster ? buildMonsterForm(selectedMonster) : buildHint('No monster selected.'));
+      return;
+    }
     if (mode === 'transition') {
       inspectorEl.append(selectedTransition ? buildTransitionForm(selectedTransition) : buildHint('No transition selected.'));
       return;
     }
-    inspectorEl.append(buildHint('Switch to the NPCs or Transitions mode to edit markers.'));
+    inspectorEl.append(buildHint('Switch to the NPCs, Monsters or Transitions mode to edit markers.'));
   }
 
   function field(labelText: string, input: HTMLElement): HTMLElement {
@@ -573,6 +685,40 @@ async function boot(): Promise<void> {
     });
     form.append(field('Color (fg)', fgInput));
 
+    const interactionBox = document.createElement('div');
+    interactionBox.className = 'field';
+    const interactionTitle = document.createElement('span');
+    interactionTitle.textContent = 'Interactions';
+    interactionBox.append(interactionTitle);
+    const boxes: Array<{ id: InteractionId; input: HTMLInputElement }> = [];
+    for (const id of Object.keys(INTERACTION_LABELS) as InteractionId[]) {
+      const row = document.createElement('label');
+      row.className = 'check';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = npc.interactions.includes(id);
+      boxes.push({ id, input });
+      row.append(input, document.createTextNode(INTERACTION_LABELS[id]));
+      interactionBox.append(row);
+    }
+    for (const box of boxes) {
+      box.input.addEventListener('change', () => {
+        const chosen = boxes.filter((b) => b.input.checked).map((b) => b.id);
+        if (chosen.length === 0) {
+          box.input.checked = true; // at least one interaction must stay
+          return;
+        }
+        doc?.beginStroke();
+        doc?.updateNpc(npc.id, { interactions: chosen });
+        markDirty();
+      });
+    }
+    const interactionHint = document.createElement('div');
+    interactionHint.className = 'hint';
+    interactionHint.textContent = 'At least one. With more than one, bumping the NPC opens a menu.';
+    interactionBox.append(interactionHint);
+    form.append(interactionBox);
+
     const deleteButton = document.createElement('button');
     deleteButton.textContent = 'Delete NPC';
     deleteButton.className = 'danger';
@@ -586,6 +732,54 @@ async function boot(): Promise<void> {
     });
     form.append(deleteButton);
 
+    return form;
+  }
+
+  function buildMonsterForm(monster: EditableMonster): HTMLElement {
+    const form = document.createElement('div');
+    form.className = 'form';
+    const def = MONSTERS[monster.defId];
+
+    const info = document.createElement('div');
+    info.className = 'id-display';
+    info.textContent = `${monster.defId} @ (${monster.x}, ${monster.y})${def && !def.hostile ? ' (peaceful)' : ''}`;
+    form.append(info);
+
+    const typeSelect = document.createElement('select');
+    for (const entry of Object.values(MONSTERS)) {
+      const option = document.createElement('option');
+      option.value = entry.id;
+      option.textContent = entry.name;
+      typeSelect.append(option);
+    }
+    if (!def) {
+      const option = document.createElement('option');
+      option.value = monster.defId;
+      option.textContent = `${monster.defId} (unknown)`;
+      typeSelect.append(option);
+    }
+    typeSelect.value = monster.defId;
+    typeSelect.addEventListener('change', () => {
+      doc?.beginStroke();
+      doc?.updateMonster(monster, { defId: typeSelect.value });
+      refreshInspector();
+      redraw();
+      markDirty();
+    });
+    form.append(field('Type', typeSelect));
+
+    const deleteButton = document.createElement('button');
+    deleteButton.textContent = 'Delete monster';
+    deleteButton.className = 'danger';
+    deleteButton.addEventListener('click', () => {
+      doc?.beginStroke();
+      doc?.removeMonster(monster);
+      selectedMonster = null;
+      refreshInspector();
+      redraw();
+      markDirty();
+    });
+    form.append(deleteButton);
     return form;
   }
 
@@ -647,7 +841,7 @@ async function boot(): Promise<void> {
 
   async function save(): Promise<void> {
     if (!doc) return;
-    const json = JSON.stringify(doc.toJSON(), null, 2);
+    const json = JSON.stringify(doc.toJSON(), null, 2) + '\n';
     try {
       const response = await fetch(`/__map?file=${currentFile}`, { method: 'POST', body: json });
       if (response.ok) {
@@ -665,7 +859,10 @@ async function boot(): Promise<void> {
   }
   saveButton.addEventListener('click', () => void save());
 
-  await loadFile(currentFile);
+  // The dev server full-reloads this page whenever a map JSON changes (including our own save), so
+  // the open file is kept in the URL hash to land back on the same map afterwards.
+  const hashed = ALLOWED_FILES.find((f) => f === location.hash.slice(1));
+  await loadFile(hashed ?? currentFile);
 }
 
 const LAYOUT = `
@@ -674,11 +871,13 @@ const LAYOUT = `
     <select id="file">
       <option value="worldMap.json">World (Goodsprings)</option>
       <option value="prospectorSaloon.json">Prospector Saloon</option>
+      <option value="docMitchellsHouse.json">Doc Mitchell&#39;s House</option>
     </select>
     <span class="tools" id="mode-tools">
       <button data-mode="tile" class="on">Tiles</button>
       <button data-mode="height">Height</button>
       <button data-mode="npc">NPCs</button>
+      <button data-mode="monster">Monsters</button>
       <button data-mode="transition">Transitions</button>
     </span>
     <span class="tools">
@@ -730,6 +929,11 @@ const STYLE = `
   .form { display: flex; flex-direction: column; gap: 8px; }
   .field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: ${PALETTE.uiDim}; }
   .field input, .field textarea { color: ${PALETTE.uiGreen}; }
+  .check { display: flex; gap: 6px; align-items: center; color: ${PALETTE.uiGreen}; }
+  .monster-list { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+  .monster-row { display: flex; gap: 8px; align-items: center; text-align: left; }
+  .monster-row.on { outline: 2px solid ${PALETTE.uiAmber}; }
+  .monster-glyph { font-size: 18px; width: 14px; text-align: center; }
   .id-display { font-size: 12px; color: ${PALETTE.uiAmber}; word-break: break-all; }
 `;
 

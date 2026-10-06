@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { defineConfig, type Plugin } from 'vitest/config';
 
 const MAP_DIR = 'src/world/goodsprings';
-const ALLOWED_FILES = new Set(['worldMap.json', 'prospectorSaloon.json']);
+const ALLOWED_FILES = new Set(['worldMap.json', 'prospectorSaloon.json', 'docMitchellsHouse.json']);
 
 /**
  * Lets the map editor save back to the repository during `npm run dev`.

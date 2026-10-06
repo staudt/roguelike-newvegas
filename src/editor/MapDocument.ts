@@ -1,6 +1,7 @@
 import { MAX_GROUND_HEIGHT } from '../config/palette';
 import type { Point } from '../utils/geometry';
 import type { MapGrid } from '../world/GameMap';
+import type { InteractionId } from '../entities/Npc';
 import type { SpaceJSON } from '../world/MapLoader';
 
 /**
@@ -19,6 +20,14 @@ export interface EditableNpc {
   /** One or more lines; an NPC with several cycles through them one bump at a time in-game. */
   dialogue: string[];
   fg?: string;
+  /** What a bump offers; ['talk'] is the default and is omitted on save. */
+  interactions: InteractionId[];
+}
+
+export interface EditableMonster {
+  defId: string;
+  x: number;
+  y: number;
 }
 
 export interface EditableTransition {
@@ -31,8 +40,34 @@ interface Snapshot {
   tiles: string[];
   heights: number[];
   npcs: EditableNpc[];
+  monsters: EditableMonster[];
   transitions: EditableTransition[];
   playerStart: Point | undefined;
+}
+
+type NpcJson = SpaceJSON['npcs'][number];
+
+function copyNpc(n: EditableNpc): EditableNpc {
+  return { ...n, dialogue: [...n.dialogue], interactions: [...n.interactions] };
+}
+
+function copyNpcFromJson(n: NpcJson): EditableNpc {
+  return { ...n, dialogue: [...n.dialogue], interactions: n.interactions ? [...n.interactions] : ['talk'] };
+}
+
+/** Writes `interactions` only when it differs from the default, keeping files that never used it unchanged. */
+function npcToJson(n: EditableNpc): NpcJson {
+  // Explicit key order (matches the hand-authored files) so a no-op save produces no diff.
+  const custom = n.interactions.length !== 1 || n.interactions[0] !== 'talk';
+  return {
+    id: n.id,
+    name: n.name,
+    x: n.x,
+    y: n.y,
+    ...(n.fg !== undefined ? { fg: n.fg } : {}),
+    ...(custom ? { interactions: [...n.interactions] } : {}),
+    dialogue: [...n.dialogue],
+  };
 }
 
 /** Matches PlanDocument's cap: deep enough to be useful, shallow enough not to accumulate forever. */
@@ -46,6 +81,7 @@ export class MapDocument {
   readonly width: number;
   readonly height: number;
   npcs: EditableNpc[];
+  monsters: EditableMonster[];
   transitions: EditableTransition[];
   playerStart: Point | undefined;
 
@@ -75,7 +111,8 @@ export class MapDocument {
     this.height = data.height;
     this.tiles = [...data.tiles];
     this.heights = [...data.heights];
-    this.npcs = data.npcs.map((n) => ({ ...n, dialogue: [...n.dialogue] }));
+    this.npcs = data.npcs.map(copyNpcFromJson);
+    this.monsters = (data.monsters ?? []).map((m) => ({ ...m }));
     this.transitions = data.transitions.map((t) => ({ ...t }));
     this.playerStart = data.playerStart ? { ...data.playerStart } : undefined;
   }
@@ -90,7 +127,8 @@ export class MapDocument {
       height: this.height,
       tiles: [...this.tiles],
       heights: [...this.heights],
-      npcs: this.npcs.map((n) => ({ ...n, dialogue: [...n.dialogue] })),
+      npcs: this.npcs.map(npcToJson),
+      monsters: this.monsters.map((m) => ({ ...m })),
       transitions: this.transitions.map((t) => ({ ...t })),
     };
     if (this.playerStart) json.playerStart = { ...this.playerStart };
@@ -130,7 +168,8 @@ export class MapDocument {
     this.undoStack.push({
       tiles: [...this.tiles],
       heights: [...this.heights],
-      npcs: this.npcs.map((n) => ({ ...n, dialogue: [...n.dialogue] })),
+      npcs: this.npcs.map(copyNpc),
+      monsters: this.monsters.map((m) => ({ ...m })),
       transitions: this.transitions.map((t) => ({ ...t })),
       playerStart: this.playerStart ? { ...this.playerStart } : undefined,
     });
@@ -143,6 +182,7 @@ export class MapDocument {
     this.tiles = previous.tiles;
     this.heights = previous.heights;
     this.npcs = previous.npcs;
+    this.monsters = previous.monsters;
     this.transitions = previous.transitions;
     this.playerStart = previous.playerStart;
     return true;
@@ -230,7 +270,7 @@ export class MapDocument {
   addNpc(x: number, y: number): EditableNpc {
     let n = 1;
     while (this.npcById(`npc-${n}`)) n++;
-    const npc: EditableNpc = { id: `npc-${n}`, name: 'New NPC', x, y, dialogue: [''] };
+    const npc: EditableNpc = { id: `npc-${n}`, name: 'New NPC', x, y, dialogue: [''], interactions: ['talk'] };
     this.npcs.push(npc);
     return npc;
   }
@@ -250,6 +290,31 @@ export class MapDocument {
 
   removeNpc(id: string): void {
     this.npcs = this.npcs.filter((n) => n.id !== id);
+  }
+
+  // --- monsters ---------------------------------------------------------------------------------
+
+  monsterAt(x: number, y: number): EditableMonster | undefined {
+    return this.monsters.find((m) => m.x === x && m.y === y);
+  }
+
+  addMonster(defId: string, x: number, y: number): EditableMonster {
+    const monster: EditableMonster = { defId, x, y };
+    this.monsters.push(monster);
+    return monster;
+  }
+
+  moveMonster(monster: EditableMonster, x: number, y: number): void {
+    monster.x = x;
+    monster.y = y;
+  }
+
+  updateMonster(monster: EditableMonster, patch: Partial<EditableMonster>): void {
+    Object.assign(monster, patch);
+  }
+
+  removeMonster(monster: EditableMonster): void {
+    this.monsters = this.monsters.filter((m) => m !== monster);
   }
 
   // --- transitions ----------------------------------------------------------------------------

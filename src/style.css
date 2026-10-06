@@ -79,7 +79,7 @@ body {
 
 #message-log {
   flex: 0 0 auto;
-  height: 7.5em;
+  height: 9.5em;
   overflow-y: auto;
   background: #081009;
   border-bottom: 1px solid #2b3a1e;
@@ -121,5 +121,66 @@ body {
 
 #status-bar .status-danger .status-value {
   color: #ff5555;
+  font-weight: bold;
+}
+
+/* Menu overlay extras: cursor row, hints, panels, death screen. */
+#menu-overlay .menu-option {
+  cursor: pointer;
+  color: #ecdfc0;
+}
+
+#menu-overlay .menu-option.selected {
+  background: #1d3a14;
+  color: #33ff66;
+}
+
+#menu-overlay .menu-hint,
+#menu-overlay .menu-line.dim {
+  color: #7a8f6e;
+}
+
+#menu-overlay .menu-line.head {
+  color: #ffb000;
+}
+
+#menu-overlay .menu-line.warn {
+  color: #ffb000;
+}
+
+#menu-overlay .menu-line.danger {
+  color: #ff5555;
+  font-weight: bold;
+}
+
+#menu-overlay .menu-footer {
+  margin-top: 8px;
+  color: #7a8f6e;
+  font-size: 12px;
+}
+
+#menu-overlay.centered .menu-title {
+  color: #ff5555;
+  font-size: 22px;
+  text-align: center;
+}
+
+#menu-overlay.centered .menu-line,
+#menu-overlay.centered .menu-footer {
+  text-align: center;
+  white-space: normal;
+}
+
+#menu-overlay.centered .menu-footer {
+  color: #ffb000;
+  font-size: 14px;
+}
+
+#status-bar .status-warn .status-value {
+  color: #ffb000;
+}
+
+#status-bar .status-prompt .status-value {
+  color: #ffb000;
   font-weight: bold;
 }

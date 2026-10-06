@@ -236,7 +236,7 @@
     "ground",
     "ground",
     "ground",
-    "wall",
+    "door",
     "rock",
     "rock",
     "rock",
@@ -1929,16 +1929,6 @@
       ]
     },
     {
-      "id": "doc-mitchell",
-      "name": "Doc Mitchell",
-      "x": 22,
-      "y": 6,
-      "fg": "#8fb0c9",
-      "dialogue": [
-        "Glad to see you back on your feet. That was a nasty bit of business, getting shot in the head. Come by if the dizziness doesn't let up."
-      ]
-    },
-    {
       "id": "ringo",
       "name": "Ringo",
       "x": 22,
@@ -1954,10 +1944,42 @@
       "x": 16,
       "y": 12,
       "toSpace": "prospector-saloon"
+    },
+    {
+      "x": 23,
+      "y": 6,
+      "toSpace": "doc-mitchells-house"
     }
   ],
   "playerStart": {
     "x": 18,
     "y": 24
-  }
+  },
+  "monsters": [
+    {
+      "defId": "gecko",
+      "x": 5,
+      "y": 18
+    },
+    {
+      "defId": "gecko",
+      "x": 6,
+      "y": 21
+    },
+    {
+      "defId": "bloatfly",
+      "x": 30,
+      "y": 12
+    },
+    {
+      "defId": "radroach",
+      "x": 4,
+      "y": 5
+    },
+    {
+      "defId": "brahmin",
+      "x": 20,
+      "y": 22
+    }
+  ]
 }

@@ -3,16 +3,20 @@ import type { Direction } from '../utils/geometry';
 import { KeyChordDetector, type ArrowKey } from './KeyChordDetector';
 
 const ARROW_KEYS = new Set<string>(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+const MODIFIER_KEYS = new Set<string>(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'AltGraph']);
 
 export interface InputCallbacks {
+  /** A movement direction (arrow cardinal or chord diagonal). Game decides what it means now. */
   onDirection: (direction: Direction) => void;
-  onWait: () => void;
+  /** Any other (non-modifier) key, as `KeyboardEvent.key`. */
+  onKey: (key: string) => void;
 }
 
 /**
- * Wires raw DOM keyboard events to game actions. Movement goes through KeyChordDetector (arrow
- * cardinals, chord diagonals); everything else is a direct key mapping. NetHack-style action keys
- * (inventory, look, etc.) land here as M1 grows past "walk and talk."
+ * Wires raw DOM keyboard events to the game. Arrow keys always go through KeyChordDetector —
+ * key-ups in particular are forwarded unconditionally, whatever mode the game is in, otherwise a
+ * key released while a menu was open would stay "held" forever and break later chords. What a
+ * direction or key *means* (move, menu cursor, prompt answer) is the Game's input-mode decision.
  */
 export class InputManager {
   private readonly chord: KeyChordDetector;
@@ -30,15 +34,24 @@ export class InputManager {
     window.removeEventListener('keyup', this.handleKeyUp);
   }
 
+  /** Dev/test driver: a full key press through the exact path real keys take. */
+  press(key: string): void {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true }));
+    window.dispatchEvent(new KeyboardEvent('keyup', { key, cancelable: true }));
+  }
+
   private handleKeyDown = (event: KeyboardEvent): void => {
     if (isArrowKey(event.key)) {
       event.preventDefault();
       this.chord.onKeyDown(event.key, event.repeat);
       return;
     }
-    if (event.key === '.') {
+    if (MODIFIER_KEYS.has(event.key)) return;
+    // Leave browser shortcuts (reload, devtools, copy...) alone.
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.key.length === 1 || event.key === 'Enter' || event.key === 'Escape') {
       event.preventDefault();
-      this.callbacks.onWait();
+      if (!event.repeat) this.callbacks.onKey(event.key);
     }
   };
 

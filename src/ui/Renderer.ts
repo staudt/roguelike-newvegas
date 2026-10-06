@@ -101,13 +101,14 @@ export class Renderer {
       }
     }
 
-    for (const npc of space.npcs) {
-      const local = worldToLocal(space, npc);
+    for (const creature of [...space.npcs, ...space.monsters]) {
+      const local = worldToLocal(space, creature);
       if (!inBounds(space.grid, local.x, local.y)) continue;
       const idx = local.y * space.grid.width + local.x;
       if (!space.visible[idx]) continue;
-      const screen = this.camera.worldToScreen(npc.x, npc.y);
-      this.drawGlyph(screen.x, screen.y, npc.glyph, npc.fg);
+      const screen = this.camera.worldToScreen(creature.x, creature.y);
+      if (creature.hostile) this.drawHostileRing(screen.x, screen.y);
+      this.drawGlyph(screen.x, screen.y, creature.glyph, creature.fg);
     }
 
     const playerScreen = this.camera.worldToScreen(state.player.x, state.player.y);
@@ -145,6 +146,16 @@ export class Renderer {
       this.ctx.fillStyle = PALETTE.rememberedOverlay;
       this.ctx.fillRect(screenX, screenY, this.camera.cellW, this.camera.cellH);
     }
+  }
+
+  /** A thin red ring marks anything that wants to fight you; peaceful things get none. */
+  private drawHostileRing(screenX: number, screenY: number): void {
+    const { cellW, cellH } = this.camera;
+    this.ctx.strokeStyle = PALETTE.hostileRing;
+    this.ctx.lineWidth = 1.5;
+    this.ctx.beginPath();
+    this.ctx.ellipse(screenX + cellW / 2, screenY + cellH / 2, cellW / 2 - 0.5, cellH / 2 - 0.5, 0, 0, Math.PI * 2);
+    this.ctx.stroke();
   }
 
   private drawGlyph(screenX: number, screenY: number, glyph: string, fg: string): void {

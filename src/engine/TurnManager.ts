@@ -1,17 +1,22 @@
-import { BALLOON_TURNS } from '../config/constants';
-import type { Npc } from '../entities/Npc';
+import { runCreatureTurns } from '../ai/AIScheduler';
+import { effectiveSpeed } from '../combat/CombatFormulas';
+import { healLimbs } from '../combat/Limbs';
+import { BALLOON_TURNS, NORMAL_SPEED } from '../config/constants';
+import { creatureAt, theName, type Creature } from '../entities/Creature';
+import type { InteractionId, Npc } from '../entities/Npc';
 import { computeVisible, markExplored } from '../fov/Visibility';
+import { itemDef } from '../items/ItemData';
 import { addPoints, type Direction, DIRECTION_VECTORS } from '../utils/geometry';
+import { defaultRNG, type RNG } from '../utils/RNG';
 import { canStep } from '../world/GameMap';
-import type { GameEvents } from './EventBus';
-import type { EventBus } from './EventBus';
+import { playerAttacks } from './Combat';
+import type { EventBus, GameEvents } from './EventBus';
 import {
   addMessage,
   getActiveSpace,
   sightRadiusFor,
   worldToLocal,
   type GameState,
-  type Space,
 } from './GameState';
 
 /** Recomputes the active space's visible/explored sets around the player. Also used on setup. */
@@ -22,16 +27,13 @@ export function recomputeVisibility(state: GameState): void {
   markExplored(space.explored, space.visible);
 }
 
-function npcAt(space: Space, x: number, y: number): Npc | undefined {
-  return space.npcs.find((n) => n.x === x && n.y === y);
-}
-
-function speakTo(state: GameState, npc: Npc): void {
+/** Says the NPC's next line, in the log and in a balloon, then moves them on to the line after. */
+export function speakTo(state: GameState, npc: Npc): void {
   const line = npc.dialogue[npc.dialogueIndex % npc.dialogue.length]!;
   npc.dialogueIndex = (npc.dialogueIndex + 1) % npc.dialogue.length;
 
   addMessage(state, `${npc.name}: "${line}"`);
-  // Replace rather than stack: bumping the same NPC again just refreshes their balloon.
+  // Replace rather than stack: talking again just refreshes their balloon.
   state.balloons = state.balloons.filter((b) => b.entityId !== npc.id);
   state.balloons.push({
     entityId: npc.id,
@@ -43,24 +45,55 @@ function speakTo(state: GameState, npc: Npc): void {
 }
 
 /**
- * Attempts to move the player one step. Returns whether a turn was actually spent — bumping a
- * wall, a barrier, or an NPC (which talks instead of attacking — there's no combat yet) is free,
- * exactly like NetHack's bump rules, so the caller knows whether to advance the turn.
+ * What bumping into a creature means, NetHack-style: a hostile gets hit; someone with a single
+ * thing to say talks; someone with several things to offer opens a menu; anything that can't
+ * talk and isn't hostile (a brahmin) asks before you start a fight. Returns whether a turn passed.
+ */
+function bumpCreature(
+  state: GameState,
+  creature: Creature,
+  events: EventBus<GameEvents>,
+  rng: RNG,
+): boolean {
+  if (creature.hostile) {
+    playerAttacks(state, creature, rng);
+    advanceTurn(state, events, rng);
+    return true;
+  }
+
+  if (creature.kind === 'npc') {
+    if (creature.interactions.length === 1 && creature.interactions[0] === 'talk') {
+      speakTo(state, creature);
+      events.emit('npc-interacted', { npc: creature });
+      return false;
+    }
+    if (creature.interactions.length > 1) {
+      events.emit('npc-menu', { npc: creature });
+      return false;
+    }
+  }
+
+  events.emit('attack-prompted', { target: creature });
+  return false;
+}
+
+/**
+ * Attempts to move the player one step. Returns whether a turn was spent — bumping a wall, a
+ * barrier, or someone friendly (who talks, or prompts) is free, exactly like NetHack's bump rules.
  */
 export function tryMovePlayer(
   state: GameState,
   direction: Direction,
   events: EventBus<GameEvents>,
+  rng: RNG = defaultRNG,
 ): boolean {
+  if (state.gameOver) return false;
+
   const space = getActiveSpace(state);
   const target = addPoints(state.player, DIRECTION_VECTORS[direction]);
 
-  const targetNpc = npcAt(space, target.x, target.y);
-  if (targetNpc) {
-    speakTo(state, targetNpc);
-    events.emit('npc-interacted', { npc: targetNpc });
-    return false;
-  }
+  const creature = creatureAt(space, target.x, target.y);
+  if (creature) return bumpCreature(state, creature, events, rng);
 
   const fromLocal = worldToLocal(space, state.player);
   const toLocal = worldToLocal(space, target);
@@ -79,18 +112,139 @@ export function tryMovePlayer(
     events.emit('space-changed', { spaceId: transition.toSpace });
   }
 
-  advanceTurn(state, events);
+  advanceTurn(state, events, rng);
   return true;
 }
 
-/** Ticks the turn counter, expires balloons, and recomputes sight. Called after any costed action. */
-export function advanceTurn(state: GameState, events: EventBus<GameEvents>): void {
+/**
+ * `F` + direction: attack that square deliberately. A peaceful target asks for confirmation first
+ * (unless `confirmed`); an empty square costs a turn, like swinging at thin air in NetHack.
+ */
+export function fightDirection(
+  state: GameState,
+  direction: Direction,
+  events: EventBus<GameEvents>,
+  rng: RNG = defaultRNG,
+  confirmed = false,
+): boolean {
+  if (state.gameOver) return false;
+
+  const space = getActiveSpace(state);
+  const target = addPoints(state.player, DIRECTION_VECTORS[direction]);
+  const creature = creatureAt(space, target.x, target.y);
+
+  if (!creature) {
+    addMessage(state, 'You attack thin air.');
+    advanceTurn(state, events, rng);
+    return true;
+  }
+
+  if (!creature.hostile && !confirmed) {
+    events.emit('attack-prompted', { target: creature });
+    return false;
+  }
+
+  playerAttacks(state, creature, rng);
+  advanceTurn(state, events, rng);
+  return true;
+}
+
+/** The player said yes to "Really attack?" — the prompt is the UI's, the consequences are ours. */
+export function confirmAttack(
+  state: GameState,
+  target: Creature,
+  events: EventBus<GameEvents>,
+  rng: RNG = defaultRNG,
+): boolean {
+  if (state.gameOver) return false;
+  addMessage(state, `You attack ${theName(target)}!`);
+  playerAttacks(state, target, rng);
+  advanceTurn(state, events, rng);
+  return true;
+}
+
+/** Picks an option from an NPC's menu. Talking is free; healing takes a turn. */
+export function useInteraction(
+  state: GameState,
+  npc: Npc,
+  interaction: InteractionId,
+  events: EventBus<GameEvents>,
+  rng: RNG = defaultRNG,
+): boolean {
+  if (state.gameOver) return false;
+
+  if (interaction === 'talk') {
+    speakTo(state, npc);
+    events.emit('npc-interacted', { npc });
+    return false;
+  }
+
+  state.player.hp = state.player.maxHp;
+  healLimbs(state.player.limbs);
+  addMessage(state, `${npc.name} patches you up. You feel much better.`);
+  advanceTurn(state, events, rng);
+  return true;
+}
+
+/** `w`: wield an item from the pack, or pass null for bare hands. Takes a turn. */
+export function wieldItem(
+  state: GameState,
+  itemId: string | null,
+  events: EventBus<GameEvents>,
+  rng: RNG = defaultRNG,
+): boolean {
+  if (state.gameOver) return false;
+
+  if (itemId === null) {
+    if (state.player.wielded === null) {
+      addMessage(state, 'You are already empty handed.');
+      return false;
+    }
+    state.player.wielded = null;
+    addMessage(state, 'You are now empty handed.');
+  } else {
+    const item = state.player.inventory.find((i) => i.id === itemId);
+    if (!item) return false;
+    if (state.player.wielded === item.id) {
+      addMessage(state, `You are already wielding the ${itemDef(item.defId).name}.`);
+      return false;
+    }
+    state.player.wielded = item.id;
+    addMessage(state, `You are now wielding the ${itemDef(item.defId).name}.`);
+  }
+
+  advanceTurn(state, events, rng);
+  return true;
+}
+
+/**
+ * The player has spent an action: pay for it, then let the world tick until the player has
+ * banked enough movement to act again. At normal speed that is exactly one tick; a crippled leg
+ * means several ticks pass (everyone else gets extra moves), and a speed-24 player would pass
+ * none, acting twice before anything else does.
+ */
+export function advanceTurn(
+  state: GameState,
+  events: EventBus<GameEvents>,
+  rng: RNG = defaultRNG,
+): void {
+  if (state.gameOver) return;
+
+  state.player.energy -= NORMAL_SPEED;
+  while (state.player.energy < NORMAL_SPEED && !state.gameOver) {
+    worldTick(state, events, rng);
+  }
+
+  recomputeVisibility(state);
+  events.emit('turn-ended', { turnCount: state.turnCount });
+}
+
+function worldTick(state: GameState, events: EventBus<GameEvents>, rng: RNG): void {
   state.turnCount += 1;
+  state.player.energy += effectiveSpeed(state.player);
 
   for (const balloon of state.balloons) balloon.turnsLeft -= 1;
   state.balloons = state.balloons.filter((b) => b.turnsLeft > 0);
 
-  recomputeVisibility(state);
-
-  events.emit('turn-ended', { turnCount: state.turnCount });
+  runCreatureTurns(state, rng, events);
 }

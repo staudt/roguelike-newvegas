@@ -6,24 +6,23 @@ Live: https://staudt.github.io/roguelike-newvegas/ · Repo: staudt/roguelike-new
 Height-ladder terrain, seamless interiors (Prospector Saloon), monologue balloons (cleared on
 move, NPCs cycle through multiple lines), map editor, `window.__game` dev bridge, 68 tests, Pages deploy.
 
-## Next — M2: combat core (decisions made, not yet started)
-- **Stats:** SPECIAL, fixed starting spread for now (no allocation screen). Simple derived stats:
-  max HP from Endurance, AC/to-hit from Agility, melee damage bonus from Strength.
-- **Death:** permadeath — death screen, no reload.
-- **Hostiles:** never talk; they attack on sight, and bumping one attacks it. First enemy: geckos.
-- **Peaceful characters:**
-  - One option (talk): bump talks, as now.
-  - More than one option: bump opens a menu like rogueout's (Doc Mitchell: Talk / Heal).
-  - `F` + direction into a peaceful NPC, or walking into a non-talking creature (e.g. a brahmin),
-    asks for confirmation before attacking. An attacked NPC/creature turns hostile.
-- **Firing:** `f` + one of 8 directions only (no angled aiming). Reuses `hasLineOfSight`, so
-  terrain between you and the target is cover. Starting 9mm pistol with limited ammo.
-- **Doc Mitchell's house:** enterable interior (same pattern as the saloon: grid extends one tile
-  past the door for the exit transition); Doc moves inside.
-- **Engine shape:** RNG injected into pure combat functions (`combat/`), monsters in `Space.monsters`,
-  BFS pathfinding with `canStep` (`ai/`), UI prompts (direction/confirm/menu) owned by `Game`,
-  engine reports them via events (`attack-prompted`, `npc-menu`).
-- **Editor:** needs monster placement and must round-trip new NPC fields (`interactions`).
+## Done — M2: melee combat core
+SPECIAL stats (fixed spread), NetHack-style melee (bump a hostile or `F` + direction, confirm before
+hitting peacefuls), `w` wield / `i` inventory / `C` character sheet, NetHack energy-based speed
+(fast creatures act several times per turn; crippled legs slow you), per-limb HP with hurt/crippled
+effects, weapon-driven hit location, log lines that always name the weapon, permadeath, geckos /
+bloatflies / radroaches / a peaceful brahmin, Doc Mitchell's enterable house with a Talk/Heal menu,
+editor support for monsters and NPC interactions. 245 tests.
+
+## Next — M3 (to decide)
+- **Guns:** `f` fires only a wielded gun with readied ammunition (needs an ammo/quiver slot), 8
+  directions, cover via `hasLineOfSight`. Add the 9mm pistol + ammo and pickups.
+- **VATS** (later): the limb system is the groundwork; target a specific limb at an AP cost.
+- **Balance:** a full-HP bare-handed player beats a lone gecko ~99.95% of the time. Consider lowering
+  max HP (now 20 + 4*Endurance) or raising monster damage so single wild monsters are a real threat.
+- **AI polish:** a hunter with no path to you holds still instead of closing up behind a blocker.
+- **Editor:** saving a map triggers a Vite full reload (selection/undo lost); exclude
+  `src/world/**/*.json` from the reload watch.
 
 ## Later
 Inventory/items (`i`, stimpaks, ammo pickups) → quests learned from overheard monologues → save/load
@@ -34,3 +33,4 @@ Inventory/items (`i`, stimpaks, ammo pickups) → quests learned from overheard 
 - `tsconfig` has `erasableSyntaxOnly`: no constructor parameter properties.
 - Vitest occasionally flakes on first run when other node processes are busy; re-run.
 - Stale duplicate repo `staudt/newvegasrl` (created by mistake) can be deleted.
+- Known quirk: `legSpeedFactor`'s 0.25 floor is unreachable (worst real case is 0.35).
