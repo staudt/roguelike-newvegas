@@ -1,0 +1,125 @@
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #050803;
+  overflow: hidden;
+}
+
+/*
+ * Full-page layout: a fixed-height message log on top, a fixed-height status line at the bottom,
+ * and the map filling every pixel between them. The canvas measures that middle band at runtime
+ * (Renderer.resize) rather than being a fixed size, so the world uses the whole window.
+ */
+#app {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+}
+
+#viewport {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0; /* without this a flex child refuses to shrink below its content */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #1f1b16; /* rock-dark, visible briefly during resize before the first paint */
+}
+
+#game-canvas {
+  display: block;
+}
+
+#menu-overlay {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 1;
+  min-width: 220px;
+  max-width: calc(100% - 40px);
+  background: #081009;
+  border: 1px solid #2b3a1e;
+  color: #ecdfc0;
+  font-family: 'Cascadia Mono', 'DejaVu Sans Mono', Consolas, monospace;
+  font-size: 14px;
+  padding: 8px 12px;
+}
+
+#menu-overlay.centered {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 300px;
+  padding: 16px 20px;
+}
+
+#menu-overlay .menu-title {
+  font-weight: bold;
+  margin-bottom: 6px;
+  color: #ffb000;
+}
+
+#menu-overlay .menu-line {
+  white-space: pre;
+  color: #7a8f6e;
+  line-height: 1.35em;
+}
+
+#menu-overlay.hidden {
+  display: none;
+}
+
+#message-log {
+  flex: 0 0 auto;
+  height: 7.5em;
+  overflow-y: auto;
+  background: #081009;
+  border-bottom: 1px solid #2b3a1e;
+  color: #33ff66;
+  font-family: 'Cascadia Mono', 'DejaVu Sans Mono', Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.25em;
+  padding: 4px 10px;
+  box-sizing: border-box;
+}
+
+#message-log .message-log-entry:first-child {
+  color: #ecdfc0;
+}
+
+#status-bar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  align-items: baseline;
+  background: #081009;
+  border-top: 1px solid #2b3a1e;
+  color: #ecdfc0;
+  font-family: 'Cascadia Mono', 'DejaVu Sans Mono', Consolas, monospace;
+  font-size: 14px;
+  padding: 5px 10px;
+  box-sizing: border-box;
+}
+
+#status-bar .status-label {
+  color: #7a8f6e;
+  margin-right: 5px;
+}
+
+#status-bar .status-label:empty {
+  margin-right: 0;
+}
+
+#status-bar .status-danger .status-value {
+  color: #ff5555;
+  font-weight: bold;
+}
