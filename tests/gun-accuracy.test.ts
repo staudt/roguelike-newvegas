@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aimSpread, computeToHit, rangeAccuracyBonus, targetEvasion } from '../src/combat/CombatFormulas';
+import { aimSpread, computeToHit, crowdPenalty, rangeAccuracyBonus, targetEvasion } from '../src/combat/CombatFormulas';
 import type { Combatant } from '../src/combat/Combatant';
 import { resolveShot } from '../src/combat/CombatResolver';
 import { createLimbs } from '../src/combat/Limbs';
@@ -34,7 +34,7 @@ const npc = () => createNpc('n', 'Sunny', 0, 0, ['hi']);
 const medium = { ac: 5, size: 'medium', speed: 12 } as const;
 
 describe('rangeAccuracyBonus', () => {
-  it('is the close bonus out to closeRange', () => {
+  it('is the close bonus out to two thirds of the effective range', () => {
     for (const d of [1, 2, 3, 4]) expect(rangeAccuracyBonus(ACC, d)).toBe(35);
   });
   it('slides linearly to the effective bonus', () => {
@@ -49,13 +49,34 @@ describe('rangeAccuracyBonus', () => {
 });
 
 describe('aimSpread', () => {
-  it('is 1 up close, shrinks per cell, and respects the floor', () => {
-    expect(aimSpread(ACC, 1)).toBe(1);
-    expect(aimSpread(ACC, 4)).toBe(1);
-    expect(aimSpread(ACC, 6)).toBeCloseTo(0.7);
-    expect(aimSpread(ACC, 8)).toBeCloseTo(0.4);
-    expect(aimSpread(ACC, 10)).toBe(0.4);
-    expect(aimSpread(ACC, 50)).toBe(0.4);
+  it('follows the shared bands: torso-leaning close, widest in the sweet spot, torso again, then the floor', () => {
+    expect([1, 2].map((d) => aimSpread(ACC, d))).toEqual([0.5, 0.5]);
+    expect([3, 4].map((d) => aimSpread(ACC, d))).toEqual([1.5, 1.5]);
+    expect([5, 6].map((d) => aimSpread(ACC, d))).toEqual([0.7, 0.7]);
+    expect([7, 10, 50].map((d) => aimSpread(ACC, d))).toEqual([0.4, 0.4, 0.4]);
+  });
+  it('scales with the gun: a range-3 gun has its sweet spot at 2', () => {
+    const short = { ...ACC, effectiveRange: 3 };
+    expect([1, 2, 3, 4].map((d) => aimSpread(short, d))).toEqual([0.5, 1.5, 0.7, 0.4]);
+  });
+});
+
+describe('crowdPenalty', () => {
+  it('costs 10 per adjacent hostile, capped at 30, and only for shots at range', () => {
+    expect(crowdPenalty(0, 5)).toBe(0);
+    expect(crowdPenalty(1, 5)).toBe(10);
+    expect(crowdPenalty(2, 5)).toBe(20);
+    expect(crowdPenalty(9, 5)).toBe(30);
+    expect(crowdPenalty(3, 1)).toBe(0);
+  });
+  it('lowers the hit chance in resolveShot', () => {
+    const hits = (crowd: number) => {
+      const rng = createRNG(3);
+      let n = 0;
+      for (let i = 0; i < 4000; i++) if (resolveShot(rng, who(), who(), SHOT, 5, crowd).hit) n++;
+      return n;
+    };
+    expect(hits(2)).toBeLessThan(hits(0) - 400);
   });
 });
 
@@ -126,7 +147,7 @@ describe('size and speed', () => {
 
 describe('where the bullet lands', () => {
   /** Perception 20 vs AC 0 clamps to 95%: nearly every roll is a hit, so the sample is large. */
-  function stats(d: number, rolls = 4000) {
+  function stats(d: number, rolls = 6000) {
     const rng = createRNG(42);
     let hits = 0;
     let torso = 0;
@@ -141,24 +162,19 @@ describe('where the bullet lands', () => {
     return { torso: torso / hits, head: head / hits };
   }
 
-  it('the torso is much likelier at distance 8 than at distance 2', () => {
-    const near = stats(2).torso;
-    const far = stats(8).torso;
-    expect(near).toBeGreaterThan(0.45);
-    expect(near).toBeLessThan(0.55); // the gun's own 50%
-    expect(far).toBeGreaterThan(near + 0.1);
+  it('point blank leans on the torso; 3-4 cells is the best band for the head and limbs', () => {
+    expect(stats(2).torso).toBeGreaterThan(stats(4).torso + 0.1);
+    expect(stats(4).head).toBeGreaterThan(stats(2).head * 1.5);
   });
 
-  it('the head can still be hit up close', () => {
-    expect(stats(3).head).toBeGreaterThan(0.08);
+  it('5-6 cells is torso-leaning again, and beyond the range the spread bottoms out', () => {
+    expect(stats(6).torso).toBeGreaterThan(stats(4).torso + 0.05);
+    expect(stats(9, 20000).torso).toBeCloseTo(50 / 70, 1);
+    expect(stats(30).torso).toBeCloseTo(stats(9, 20000).torso, 1);
   });
 
-  it('the spread never shrinks below aimFloor', () => {
-    // Weights at the floor: head 12*0.4=4.8, torso 50, arm 7.6, leg 7.6 -> 70 total.
-    const far = stats(10, 20000);
-    expect(far.torso).toBeCloseTo(50 / 70, 1);
-    expect(far.head).toBeGreaterThan(0.04);
-    expect(stats(30).torso).toBeCloseTo(far.torso, 1);
+  it('the head can be hit at any range', () => {
+    for (const d of [1, 4, 9]) expect(stats(d).head).toBeGreaterThan(0.03);
   });
 });
 

@@ -116,7 +116,7 @@ describe('resolveShot', () => {
     };
   }
   // A flat gun: no range bonus at all up close, a plain 3 points per cell past 6.
-  const accuracy = { closeRange: 4, closeBonus: 0, effectiveRange: 6, effectiveBonus: 0, falloffPerCell: 3, aimFalloffPerCell: 0.15, aimFloor: 0.4 };
+  const accuracy = { effectiveRange: 6, closeBonus: 0, effectiveBonus: 0, falloffPerCell: 3 };
   const shot = { damage: { min: 10, max: 10 }, accuracyBonus: 0, accuracy, hitProfile: { head: 0, torso: 1, arm: 0, leg: 0 } };
 
   it('range falloff: past the effective range the chance drops falloffPerCell per cell', () => {

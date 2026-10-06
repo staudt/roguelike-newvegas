@@ -35,6 +35,7 @@ export function createMonster(id: string, defId: string, x: number, y: number): 
     strength: def.strength,
     speed: def.speed,
     size: def.size ?? 'medium',
+    ...(def.mass !== undefined ? { mass: def.mass } : {}),
     // Empty bank: a fresh monster waits for its first tick like everyone else, so a normal-speed
     // creature gets exactly one action per turn (a full bank gave it a free extra swing).
     energy: 0,

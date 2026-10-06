@@ -1,5 +1,5 @@
 import type { ShotProfile } from '../items/ItemData';
-import { aimSpread, computeToHit, rangeAccuracyBonus, strengthDamageBonus, targetEvasion } from './CombatFormulas';
+import { aimSpread, computeToHit, crowdPenalty, rangeAccuracyBonus, strengthDamageBonus, targetEvasion } from './CombatFormulas';
 import type { AttackProfile, Combatant } from './Combatant';
 import { limbAccuracyPenalty, limbCondition, type Limb, type LimbCondition } from './Limbs';
 import { pickWeighted, randomInt, type RNG } from '../utils/RNG';
@@ -86,11 +86,12 @@ export function resolveShot(
   target: Combatant,
   shot: ShotProfile,
   distanceCells: number,
+  adjacentHostiles = 0,
 ): AttackResult {
   const chance = computeToHit(
     shooter.perception ?? shooter.agility,
     shot.accuracyBonus + rangeAccuracyBonus(shot.accuracy, distanceCells) + targetEvasion(target),
-    limbAccuracyPenalty(shooter.limbs),
+    limbAccuracyPenalty(shooter.limbs) + crowdPenalty(adjacentHostiles, distanceCells),
     target.ac,
   );
 

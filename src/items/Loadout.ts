@@ -8,6 +8,8 @@ export interface Carrier {
   wielded: string | null;
   /** Id of the readied ammunition stack, or null. */
   readied: string | null;
+  /** The weapon `x` swaps back to. Only the player keeps one. */
+  alternate?: string | null;
 }
 
 /** On-disk description of what someone carries (map JSON), by item definition id. */

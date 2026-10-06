@@ -14,6 +14,8 @@ export interface MonsterDef {
   speed: number;
   /** Gun to-hit size class; default medium. */
   size?: CreatureSize;
+  /** Knockback mass when it differs from what its size implies. */
+  mass?: number;
   bodyPlan: BodyPlanId;
   attack: AttackProfile;
   awareness: number;
@@ -102,6 +104,30 @@ export const MONSTERS: Record<string, MonsterDef> = {
       strengthBonus: false,
     },
     awareness: 6,
+    hostile: true,
+  },
+  ghoul: {
+    id: 'ghoul',
+    // Wiry and light: a kick sends it flying, and it is back on you in no time.
+    size: 'medium',
+    mass: 3,
+    name: 'ghoul',
+    glyph: 'Z',
+    fg: '#8fa86a',
+    hp: 22,
+    ac: 4,
+    agility: 5,
+    strength: 6,
+    speed: 16,
+    bodyPlan: 'humanoid',
+    attack: {
+      weaponName: 'claws',
+      damage: { min: 3, max: 6 },
+      accuracyBonus: 0,
+      hitProfile: { head: 15, torso: 45, arm: 25, leg: 15 },
+      strengthBonus: false,
+    },
+    awareness: 7,
     hostile: true,
   },
   brahmin: {

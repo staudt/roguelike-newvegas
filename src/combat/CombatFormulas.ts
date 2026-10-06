@@ -1,4 +1,7 @@
 import {
+  AIM_ZONES,
+  CROWD_PENALTY_MAX,
+  CROWD_PENALTY_PER_HOSTILE,
   EVASION_PER_SPEED,
   EVASION_SPEED_THRESHOLD,
   NORMAL_SPEED,
@@ -44,18 +47,28 @@ export function actionsPerTurn(c: Pick<Combatant, 'speed' | 'limbs'>): number {
 
 /** To-hit points a gun gains or loses from range: flat when close, sliding to the good range, then falling off. */
 export function rangeAccuracyBonus(a: ShotAccuracy, distance: number): number {
-  if (distance <= a.closeRange) return a.closeBonus;
+  const closeRange = Math.floor((a.effectiveRange * 2) / 3);
+  if (distance <= closeRange) return a.closeBonus;
   if (distance <= a.effectiveRange) {
-    const t = (distance - a.closeRange) / (a.effectiveRange - a.closeRange);
+    const t = (distance - closeRange) / (a.effectiveRange - closeRange);
     return a.closeBonus + (a.effectiveBonus - a.closeBonus) * t;
   }
   return a.effectiveBonus - a.falloffPerCell * (distance - a.effectiveRange);
 }
 
-/** Fraction (aimFloor..1) of the gun's non-torso hit weights kept at this distance. */
+/** Multiplier on the gun's non-torso hit weights at this distance (see AIM_ZONES). */
 export function aimSpread(a: ShotAccuracy, distance: number): number {
-  if (distance <= a.closeRange) return 1;
-  return Math.max(a.aimFloor, 1 - a.aimFalloffPerCell * (distance - a.closeRange));
+  const range = a.effectiveRange;
+  if (distance * 3 <= range) return AIM_ZONES.point;
+  if (distance * 3 <= range * 2) return AIM_ZONES.sweet;
+  if (distance <= range) return AIM_ZONES.far;
+  return AIM_ZONES.beyond;
+}
+
+/** To-hit points lost to hostiles crowding the shooter. Only shots at range (2+ cells) suffer. */
+export function crowdPenalty(adjacentHostiles: number, distance: number): number {
+  if (distance < 2) return 0;
+  return Math.min(CROWD_PENALTY_MAX, adjacentHostiles * CROWD_PENALTY_PER_HOSTILE);
 }
 
 /** Gun to-hit modifier from the target's size and (current, not crippled) speed. */

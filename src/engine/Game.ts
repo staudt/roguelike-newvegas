@@ -22,6 +22,7 @@ import { Renderer } from '../ui/Renderer';
 import { limbShortName, StatusBar } from '../ui/StatusBar';
 import { EventBus, type GameEvents } from './EventBus';
 import { addGroundItem, groundItemsAt } from './GroundItems';
+import { kickDirection } from './Kick';
 import { dropItem, fireGun, pickUp, readyAmmo, useItem } from './Items';
 import {
   addMessage,
@@ -35,6 +36,7 @@ import {
   confirmAttack,
   fightDirection,
   recomputeVisibility,
+  swapWeapons,
   tryMovePlayer,
   useInteraction,
   wieldItem,
@@ -46,7 +48,7 @@ import {
  */
 type Mode =
   | { kind: 'normal' }
-  | { kind: 'direction'; command: 'fight' | 'fire' }
+  | { kind: 'direction'; command: 'fight' | 'fire' | 'kick' }
   | { kind: 'animating' } // a shot tracer is playing; keys are swallowed
   | { kind: 'confirm'; target: Creature } // a Yes/No menu is open (its callback lives in the Menu)
   | { kind: 'menu' } // an option menu is open in the overlay (its callback lives in the Menu)
@@ -126,6 +128,8 @@ const HELP_LINES: PanelLine[] = [
   { text: 'F + direction fight in that direction' },
   { text: 'Enter         command menu (every command and its key)' },
   { text: 'f + direction fire the wielded gun' },
+  { text: 'k + direction kick (may knock the target back)' },
+  { text: 'x             swap wielded and alternate weapon' },
   { text: ',             pick up' },
   { text: 'd             drop' },
   { text: 'w             wield a weapon, gun or bare hands' },
@@ -284,9 +288,8 @@ export class Game {
 
   private promptText(): string | null {
     if (this.mode.kind !== 'direction') return null;
-    return this.mode.command === 'fire'
-      ? 'Fire in which direction? (arrows, Esc cancels)'
-      : 'Attack in which direction? (arrows, Esc cancels)';
+    const verb = { fire: 'Fire', kick: 'Kick', fight: 'Attack' }[this.mode.command];
+    return `${verb} in which direction? (arrows, Esc cancels)`;
   }
 
   /** Anchor for a menu about `target`: beside its cell, never over it or the player. */
@@ -339,6 +342,7 @@ export class Game {
       case 'direction':
         this.setMode({ kind: 'normal' });
         if (mode.command === 'fire') fireGun(this.state, direction, this.events);
+        else if (mode.command === 'kick') kickDirection(this.state, direction, this.events);
         else fightDirection(this.state, direction, this.events);
         break;
       case 'confirm':
@@ -388,6 +392,12 @@ export class Game {
     switch (key) {
       case 'F':
         this.setMode({ kind: 'direction', command: 'fight' });
+        break;
+      case 'k':
+        this.setMode({ kind: 'direction', command: 'kick' });
+        break;
+      case 'x':
+        swapWeapons(this.state, this.events);
         break;
       case 'W':
         addMessage(this.state, "You can't do that yet.");
@@ -500,6 +510,7 @@ export class Game {
       hurt: p.hp < p.maxHp,
       consumables: p.inventory.filter((i) => itemDef(i.defId).kind === 'consumable').length,
       droppable: p.inventory.filter((i) => !isUndroppable(i)).length,
+      hasAlternate: p.alternate !== null || p.wielded !== null,
     });
   }
 

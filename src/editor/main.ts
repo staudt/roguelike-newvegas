@@ -68,7 +68,7 @@ type Mode = 'tile' | 'height' | 'npc' | 'monster' | 'item' | 'transition';
 type TileTool = 'pencil' | 'line' | 'rect' | 'box' | 'building' | 'fill' | 'pick';
 type HeightTool = 'raise' | 'lower' | 'set';
 
-const PAINTABLE_TILES = ['ground', 'rock', 'wall', 'door', 'openDoor', 'floor', 'void'] as const;
+const PAINTABLE_TILES = ['ground', 'rock', 'wall', 'door', 'openDoor', 'floor', 'road', 'void'] as const;
 
 const MINIMAP_MAX_W = 220;
 const MINIMAP_MAX_H = 170;
@@ -812,7 +812,7 @@ async function boot(): Promise<void> {
   function describeCell(at: Point): string {
     if (!doc) return '';
     const tile = doc.tileAt(at.x, at.y);
-    const h = doc.tileAt(at.x, at.y) === 'ground' ? ` h${doc.heightAt(at.x, at.y)}` : '';
+    const h = ['ground', 'road'].includes(doc.tileAt(at.x, at.y)) ? ` h${doc.heightAt(at.x, at.y)}` : '';
     const chunk = doc.kind === 'world' ? `   chunk ${at.x >> 6},${at.y >> 6}` : '';
     return `${at.x}, ${at.y}   ${tile}${h}${chunk}`;
   }

@@ -93,4 +93,5 @@ export function consumeRound(c: Carrier): void {
 export function clearSlotsFor(c: Carrier, item: Item): void {
   if (c.wielded === item.id) c.wielded = null;
   if (c.readied === item.id) c.readied = null;
+  if (c.alternate === item.id) c.alternate = null;
 }

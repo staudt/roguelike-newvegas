@@ -36,6 +36,7 @@ export function itemTags(c: Carrier, item: Item): string[] {
   const tags: string[] = [];
   if (c.wielded === item.id) tags.push('(wielded)');
   if (c.readied === item.id) tags.push('(readied)');
+  if (c.alternate === item.id) tags.push('(alternate)');
   if (isUndroppable(item)) tags.push("(can't drop)");
   return tags;
 }

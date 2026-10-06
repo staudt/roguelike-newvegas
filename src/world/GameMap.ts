@@ -2,7 +2,7 @@ import { MAX_STEP_HEIGHT_DELTA } from '../config/constants';
 import { MAX_GROUND_HEIGHT } from '../config/palette';
 import type { Point } from '../utils/geometry';
 import { createEmptyGrid } from './FlatMap';
-import { GROUND_TILE, tileIdOf, tileIndex, tileOpaque, tileWalkable } from './Tile';
+import { tileIdOf, tileIndex, tileIsGround, tileOpaque, tileWalkable } from './Tile';
 import type { TileMap } from './TileMap';
 
 /**
@@ -55,7 +55,7 @@ export function canStep(map: MapGrid, from: Point, to: Point): boolean {
   const toTile = map.getTile(to.x, to.y);
   if (!tileWalkable(toTile)) return false;
 
-  if (toTile === GROUND_TILE && map.getTile(from.x, from.y) === GROUND_TILE) {
+  if (tileIsGround(toTile) && tileIsGround(map.getTile(from.x, from.y))) {
     const delta = Math.abs(map.getHeight(to.x, to.y) - map.getHeight(from.x, from.y));
     if (delta > MAX_STEP_HEIGHT_DELTA) return false;
   }

@@ -218,6 +218,7 @@ export function wieldItem(
       addMessage(state, 'You are already empty handed.');
       return false;
     }
+    rememberAlternate(state, null);
     state.player.wielded = null;
     addMessage(state, 'You are now empty handed.');
   } else {
@@ -231,10 +232,42 @@ export function wieldItem(
       addMessage(state, `You are already wielding the ${itemDef(item.defId).name}.`);
       return false;
     }
+    rememberAlternate(state, item.id);
     state.player.wielded = item.id;
     addMessage(state, `You are now wielding the ${itemDef(item.defId).name}.`);
   }
 
+  advanceTurn(state, events, rng);
+  return true;
+}
+
+/** Whatever you hold now becomes the alternate when you switch to `next` (bare hands don't). */
+function rememberAlternate(state: GameState, next: string | null): void {
+  const p = state.player;
+  if (p.wielded !== null) p.alternate = p.wielded;
+  else if (p.alternate === next) p.alternate = null;
+}
+
+/** `x`: swap the wielded weapon with the alternate (NetHack-style). Takes a turn. */
+export function swapWeapons(
+  state: GameState,
+  events: EventBus<GameEvents>,
+  rng: RNG = defaultRNG,
+): boolean {
+  if (state.gameOver) return false;
+  const p = state.player;
+  const nameOf = (id: string | null): string => {
+    const item = p.inventory.find((i) => i.id === id);
+    return item ? itemDef(item.defId).name : 'bare hands';
+  };
+  if (p.alternate !== null && !p.inventory.some((i) => i.id === p.alternate)) p.alternate = null;
+  // No alternate means bare hands, so `x` just puts the wielded weapon away.
+  if (p.alternate === null && p.wielded === null) {
+    addMessage(state, 'You have no alternate weapon.');
+    return false;
+  }
+  [p.wielded, p.alternate] = [p.alternate, p.wielded];
+  addMessage(state, `You are now wielding ${p.wielded === null ? 'nothing' : `the ${nameOf(p.wielded)}`}. (Alternate: ${nameOf(p.alternate)}.)`);
   advanceTurn(state, events, rng);
   return true;
 }

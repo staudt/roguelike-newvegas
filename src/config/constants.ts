@@ -69,6 +69,35 @@ export const SIM_RADIUS = 40;
 /** Gun to-hit modifier (percentage points) by target size. Melee ignores it. */
 export const SIZE_TO_HIT_MODIFIER = { tiny: -20, small: -8, medium: 0, large: 8 } as const;
 
+/** How hard a body is to knock back with a kick, by size. A creature may override with `mass`. */
+export const SIZE_MASS = { tiny: 1.5, small: 2, medium: 5, large: 12 } as const;
+
+/** Kick force (2 x Strength + 0-6) divided by this and the target's mass is the squares it flies. */
+export const KICK_FORCE_DIVISOR = 2;
+
+/** A knocked-back creature loses this many actions per square it flew (at least one) getting up. */
+export const KICK_STAGGER_PER_SQUARE = 0.5;
+
+/**
+ * Where a shot tends to land, by distance as a fraction of the gun's effective range. Each value
+ * multiplies the head/arm/leg hit weights (the torso weight never changes): below 1 the hit is
+ * likely the torso, above 1 a head or limb is likelier. Every gun shares it.
+ */
+export const AIM_ZONES = {
+  /** Up to 1/3 of the range: too close to place a shot. */
+  point: 0.5,
+  /** Up to 2/3: the sweet spot for aimed shots. */
+  sweet: 1.5,
+  /** Up to the full range: accurate, but the hit lands on the torso more often. */
+  far: 0.7,
+  /** Beyond it. */
+  beyond: 0.4,
+} as const;
+
+/** Each hostile next to the shooter costs this many to-hit points on shots at range, up to the cap. */
+export const CROWD_PENALTY_PER_HOSTILE = 10;
+export const CROWD_PENALTY_MAX = 30;
+
 /** Targets faster than this are harder to shoot... */
 export const EVASION_SPEED_THRESHOLD = 12;
 /** ...by this many points per point of speed above the threshold. */

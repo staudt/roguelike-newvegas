@@ -13,6 +13,8 @@ export interface CommandContext {
   consumables: number;
   /** Items that can be dropped. */
   droppable: number;
+  /** An alternate weapon is set, so `x` has something to swap to. */
+  hasAlternate?: boolean;
 }
 
 export type CommandId =
@@ -25,6 +27,8 @@ export type CommandId =
   | 'drop'
   | 'sheet'
   | 'fight'
+  | 'kick'
+  | 'swap'
   | 'wait'
   | 'help'
   | 'wear';
@@ -46,6 +50,7 @@ export function buildCommandList(ctx: CommandContext): CommandRow[] {
   if (ctx.itemsHere > 0) context.push(row('pickup', 'Pick up', ',', 'context'));
   if (ctx.gunWielded && ctx.readiedAmmo > 0) context.push(row('fire', 'Fire', 'f', 'context'));
   else if (ctx.gunWielded && ctx.ammoInPack > 0) context.push(row('ready', 'Ready ammo', 'Q', 'context'));
+  if (ctx.hasAlternate) context.push(row('swap', 'Swap weapons', 'x', 'context'));
   if (ctx.consumables > 0) {
     const use = row('use', 'Use item', 'q', 'context');
     if (ctx.hurt) context.unshift(use);
@@ -57,6 +62,7 @@ export function buildCommandList(ctx: CommandContext): CommandRow[] {
   standard.push(
     row('sheet', 'Character sheet', 'C', 'standard'),
     row('fight', 'Fight in a direction', 'F', 'standard'),
+    row('kick', 'Kick', 'k', 'standard'),
     row('wait', 'Wait', '.', 'standard'),
     row('help', 'Help', '?', 'standard'),
   );

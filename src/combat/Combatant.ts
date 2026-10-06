@@ -42,4 +42,6 @@ export interface Combatant {
   limbs: Limb[];
   /** Body size; modifies gun to-hit only. Absent means medium. */
   size?: CreatureSize;
+  /** Body mass for knockback; overrides the size default (a light, wiry ghoul). */
+  mass?: number;
 }

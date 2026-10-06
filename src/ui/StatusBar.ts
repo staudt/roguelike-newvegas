@@ -25,25 +25,32 @@ export function limbShortName(name: string): string {
 /** Renders the bottom status line as plain DOM, plus an optional pending-prompt field. */
 export class StatusBar {
   private readonly el: HTMLElement;
+  private row: HTMLElement;
 
   constructor(el: HTMLElement) {
     this.el = el;
+    this.row = el;
   }
 
   render(state: GameState, prompt: string | null = null): void {
     const p = state.player;
     this.el.innerHTML = '';
+    const stats = this.addRow();
+    // Second row is always present (even empty) so the layout never jumps: prompt and limb status.
+    const alerts = this.addRow();
+    this.row = alerts;
     if (prompt) this.appendField('', prompt, 'status-prompt');
-    this.appendField(
-      'HP',
-      `${Math.max(0, p.hp)}/${p.maxHp}`,
-      p.hp < p.maxHp * DANGER_FRACTION ? 'status-danger' : '',
-    );
     for (const limb of p.limbs) {
       const cond = limbCondition(limb);
       if (cond === 'ok') continue;
       this.appendField('', `${limbShortName(limb.name)} ${cond}`, cond === 'crippled' ? 'status-danger' : 'status-warn');
     }
+    this.row = stats;
+    this.appendField(
+      'HP',
+      `${Math.max(0, p.hp)}/${p.maxHp}`,
+      p.hp < p.maxHp * DANGER_FRACTION ? 'status-danger' : '',
+    );
     const held = wieldedItem(p);
     this.appendField('Wielding', held ? itemDef(held.defId).name : 'Hands');
     if (wieldedGun(p)) {
@@ -60,6 +67,13 @@ export class StatusBar {
     this.appendField('Turn', String(state.turnCount));
   }
 
+  private addRow(): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'status-row';
+    this.el.appendChild(row);
+    return row;
+  }
+
   private appendField(label: string, value: string, cls = ''): void {
     const field = document.createElement('span');
     if (cls) field.className = cls;
@@ -73,6 +87,6 @@ export class StatusBar {
     valueEl.className = 'status-value';
     valueEl.textContent = value;
     field.appendChild(valueEl);
-    this.el.appendChild(field);
+    this.row.appendChild(field);
   }
 }

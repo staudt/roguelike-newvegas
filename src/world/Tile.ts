@@ -1,4 +1,4 @@
-import { PALETTE, groundLevel } from '../config/palette';
+import { PALETTE, ROAD_LEVELS, groundLevel, type GroundLevel } from '../config/palette';
 
 /**
  * Tiles are deliberately plain data: walkability and opacity live here, not on the map. The one
@@ -11,6 +11,8 @@ export interface TileDef {
   opaque: boolean;
   /** When true, glyph/fg/bg below are ignored — `visualFor` derives them from cell height. */
   isGround?: boolean;
+  /** Ground-like tiles with their own look: one rung per height instead of the desert ladder. */
+  levels?: readonly GroundLevel[];
   glyph?: string;
   fg?: string;
   bg?: string;
@@ -21,6 +23,8 @@ export const TILES: Record<string, TileDef> = {
   // stop where the world ends. Cells outside any chunk read as void too.
   void: { id: 'void', walkable: false, opaque: true, glyph: ' ', fg: '#000000', bg: '#000000' },
   ground: { id: 'ground', walkable: true, opaque: false, isGround: true },
+  // Paved ground: behaves exactly like ground (it keeps a height and obeys the height rules).
+  road: { id: 'road', walkable: true, opaque: false, isGround: true, levels: ROAD_LEVELS },
   rock: {
     id: 'rock',
     walkable: false,
@@ -81,7 +85,9 @@ export interface TileVisual {
 export function visualFor(id: string, height: number): TileVisual {
   const def = tileDef(id);
   if (def.isGround) {
-    const level = groundLevel(height);
+    const level = def.levels
+      ? def.levels[Math.max(0, Math.min(def.levels.length - 1, height))]!
+      : groundLevel(height);
     return { glyph: level.glyph, fg: level.fg, bg: level.bg };
   }
   return { glyph: def.glyph ?? '?', fg: def.fg ?? '#ffffff', bg: def.bg ?? '#000000' };
@@ -100,6 +106,7 @@ export const TILE_ORDER: readonly string[] = [
   'door',
   'openDoor',
   'floor',
+  'road',
 ];
 
 const INDEX_BY_ID: Record<string, number> = Object.fromEntries(
@@ -122,6 +129,13 @@ export function tileIdOf(index: number): string {
 /** Per-index lookups for hot paths: walkability/opacity are asked thousands of times a turn. */
 const WALKABLE_BY_INDEX: boolean[] = TILE_ORDER.map((id) => tileDef(id).walkable);
 const OPAQUE_BY_INDEX: boolean[] = TILE_ORDER.map((id) => tileDef(id).opaque);
+
+const GROUND_LIKE_BY_INDEX: boolean[] = TILE_ORDER.map((id) => tileDef(id).isGround === true);
+
+/** Ground or anything that behaves like it (road): open terrain that carries a height. */
+export function tileIsGround(index: number): boolean {
+  return GROUND_LIKE_BY_INDEX[index] ?? false;
+}
 
 export function tileWalkable(index: number): boolean {
   return WALKABLE_BY_INDEX[index] ?? false;

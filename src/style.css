@@ -12,7 +12,7 @@ body {
 }
 
 /*
- * Full-page layout: a fixed-height message log on top, a fixed-height status line at the bottom,
+ * Full-page layout: a fixed-height message log on top, a fixed-height status line under it,
  * and the map filling every pixel between them. The canvas measures that middle band at runtime
  * (Renderer.resize) rather than being a fixed size, so the world uses the whole window.
  */
@@ -103,12 +103,8 @@ body {
 
 #status-bar {
   flex: 0 0 auto;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 18px;
-  align-items: baseline;
   background: #081009;
-  border-top: 1px solid #2b3a1e;
+  border-bottom: 1px solid #2b3a1e;
   color: #ecdfc0;
   font-family: 'Cascadia Mono', 'DejaVu Sans Mono', Consolas, monospace;
   font-size: 14px;
@@ -214,4 +210,12 @@ body {
   height: 0;
   margin: 3px 0;
   border-top: 1px solid #2b3a1e;
+}
+
+#status-bar .status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  align-items: baseline;
+  min-height: 1.4em;
 }

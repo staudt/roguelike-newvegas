@@ -15,7 +15,7 @@ import type { EventBus, GameEvents } from './EventBus';
 import { addMessage, getActiveSpace, type GameState } from './GameState';
 import { dropCreatureItems } from './GroundItems';
 
-const YOU: Party = { name: 'you', isPlayer: true, possessive: 'your' };
+export const YOU: Party = { name: 'you', isPlayer: true, possessive: 'your' };
 
 export function partyFor(creature: Creature): Party {
   return {
@@ -36,7 +36,7 @@ export function creatureMeleeProfile(creature: Creature): AttackProfile {
 }
 
 /** Removes a dead creature from the world; whatever it carried (and its loot) hits the floor. */
-function removeCreature(state: GameState, creature: Creature, rng: RNG): void {
+export function removeCreature(state: GameState, creature: Creature, rng: RNG): void {
   const space = getActiveSpace(state);
   dropCreatureItems(state, creature, rng);
   space.monsters = space.monsters.filter((m) => m !== creature);
@@ -113,6 +113,20 @@ export function alertNearbyHostiles(state: GameState, at: Point): void {
   }
 }
 
+/**
+ * Hostiles right next to the shooter, which spoil aim at range: for the player, every adjacent
+ * hostile creature; for a creature, the player when they are in its face.
+ */
+export function adjacentHostiles(state: GameState, shooter: Player | Creature): number {
+  if (shooter.kind !== 'player') return chebyshevDistance(shooter, state.player) <= 1 ? 1 : 0;
+  const space = getActiveSpace(state);
+  let n = 0;
+  for (const list of [space.monsters, space.npcs] as Creature[][]) {
+    for (const c of list) if (c.hostile && chebyshevDistance(c, shooter) <= 1) n++;
+  }
+  return n;
+}
+
 export interface ShotOutcome {
   path: Point[];
   /** Id of whatever the bullet struck ('player' or a creature id). */
@@ -138,11 +152,14 @@ export function fireProjectile(
   const party = isPlayer ? YOU : partyFor(shooter as Creature);
 
   alertNearbyHostiles(state, shooter);
+  const crowd = adjacentHostiles(state, shooter);
 
   const flight = shotPath(state, shooter, step, gun.range);
   const path: Point[] = [];
   let hitId: string | undefined;
   let rolled = 0;
+
+  let warned = false;
 
   for (let i = 0; i < flight.length && hitId === undefined; i++) {
     const cell = flight[i]!;
@@ -152,7 +169,11 @@ export function fireProjectile(
       const target = creatureAt(space, cell.x, cell.y);
       if (!target) continue;
       rolled++;
-      const result = resolveShot(rng, state.player, target, gun.shot, i + 1);
+      if (crowd > 0 && i > 0 && !warned) {
+        warned = true;
+        addMessage(state, 'You are too hemmed in to aim.');
+      }
+      const result = resolveShot(rng, state.player, target, gun.shot, i + 1, crowd);
       for (const line of narrateShot(party, partyFor(target), gun.name, result)) addMessage(state, line);
       if (result.killed) {
         removeCreature(state, target, rng);
@@ -163,7 +184,7 @@ export function fireProjectile(
       if (result.hit) hitId = target.id;
     } else if (cell.x === state.player.x && cell.y === state.player.y) {
       rolled++;
-      const result = resolveShot(rng, shooter, state.player, gun.shot, i + 1);
+      const result = resolveShot(rng, shooter, state.player, gun.shot, i + 1, crowd);
       for (const line of narrateShot(party, YOU, gun.name, result)) addMessage(state, line);
       if (result.killed) killPlayer(state, events);
       if (result.hit) hitId = state.player.id;

@@ -36,6 +36,8 @@ export interface Player extends Entity, Combatant {
   wielded: string | null;
   /** Id of the readied ammunition stack, or null. `f` fires only with a wielded gun and ready ammo. */
   readied: string | null;
+  /** Previously wielded weapon; `x` swaps back to it. */
+  alternate: string | null;
 }
 
 export function createPlayer(x: number, y: number): Player {
@@ -70,5 +72,6 @@ export function createPlayer(x: number, y: number): Player {
     ],
     wielded: null,
     readied: null,
+    alternate: null,
   };
 }

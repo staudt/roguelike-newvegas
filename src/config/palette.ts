@@ -7,7 +7,7 @@
  * this module so retuning a color never means hunting through two files.
  */
 
-/** One rung of the ground height ladder: `.` at ground level up to a solid `█` on a ridge. */
+/** One rung of the ground height ladder: bare color at ground level up to a solid `█` on a ridge. */
 export interface GroundLevel {
   glyph: string;
   fg: string;
@@ -15,11 +15,23 @@ export interface GroundLevel {
 }
 
 export const GROUND_LEVELS: readonly GroundLevel[] = [
-  { glyph: '.', fg: '#d9c48f', bg: '#4a3826' }, // 0 — sun-bleached flat
+  { glyph: ' ', fg: '#d9c48f', bg: '#4a3826' }, // 0 — sun-bleached flat (just the color)
   { glyph: '░', fg: '#c9ad73', bg: '#42311f' }, // 1 — rising dust
   { glyph: '▒', fg: '#b89757', bg: '#3a2a19' }, // 2 — scrub slope
   { glyph: '▓', fg: '#a37f41', bg: '#322313' }, // 3 — rocky rise
   { glyph: '█', fg: '#8a6a37', bg: '#2a1d0f' }, // 4 — ridge top, highest walkable ground
+];
+
+/**
+ * Road: the ground's own height glyphs in asphalt greys, so height reads exactly as on the desert
+ * ground (bare color at level 0, then `░ ▒ ▓ █`); only the colors say "paved".
+ */
+export const ROAD_LEVELS: readonly GroundLevel[] = [
+  { glyph: ' ', fg: '#9a958a', bg: '#3b3a37' },
+  { glyph: '░', fg: '#8d887d', bg: '#353431' },
+  { glyph: '▒', fg: '#807b71', bg: '#2f2e2b' },
+  { glyph: '▓', fg: '#736f66', bg: '#292825' },
+  { glyph: '█', fg: '#66625a', bg: '#232220' },
 ];
 
 export const MAX_GROUND_HEIGHT = GROUND_LEVELS.length - 1;

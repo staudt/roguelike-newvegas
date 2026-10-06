@@ -32,20 +32,21 @@ export interface WeaponDef extends ItemDefBase {
   attack: Omit<AttackProfile, 'weaponName'>;
 }
 
-/** What one shot from a gun does, before the target's armor and the range penalty. */
+/**
+ * How a gun's accuracy changes with distance. A gun only declares its `effectiveRange`; the bands
+ * that shape *where* a shot lands are the same proportions for every gun, as fractions of it (see
+ * AIM_ZONES). A pistol with range 6 is torso-leaning at 1-2 cells, at its best for aimed shots at
+ * 3-4, torso-leaning again at 5-6, and loses accuracy beyond.
+ */
 export interface ShotAccuracy {
-  /** Out to this many cells the range bonus is `closeBonus` (hard to miss). */
-  closeRange: number;
-  closeBonus: number;
-  /** The gun's good range: the bonus slides linearly from closeBonus to effectiveBonus here. */
+  /** The gun's good range in cells. Past it the chance to hit falls off. */
   effectiveRange: number;
+  /** To-hit bonus out to two thirds of effectiveRange (hard to miss)... */
+  closeBonus: number;
+  /** ...sliding to this bonus at effectiveRange. */
   effectiveBonus: number;
   /** Beyond effectiveRange the bonus drops by this many points per cell (can go negative). */
   falloffPerCell: number;
-  /** Beyond closeRange the non-torso hit weights shrink by this fraction per cell... */
-  aimFalloffPerCell: number;
-  /** ...but never below this fraction of the gun's hit profile. */
-  aimFloor: number;
 }
 
 export interface ShotProfile {
@@ -126,13 +127,10 @@ export const ITEMS: Record<string, ItemDef> = {
       damage: { min: 4, max: 9 },
       accuracyBonus: 5,
       accuracy: {
-        closeRange: 4,
-        closeBonus: 35,
         effectiveRange: 6,
+        closeBonus: 35,
         effectiveBonus: 15,
         falloffPerCell: 8,
-        aimFalloffPerCell: 0.15,
-        aimFloor: 0.4,
       },
       hitProfile: { head: 12, torso: 50, arm: 19, leg: 19 },
     },
