@@ -46,17 +46,25 @@ describe('canStep', () => {
     expect(canStep(grid, { x: 0, y: 0 }, { x: 1, y: 0 })).toBe(false);
   });
 
-  it('skips the height-delta check when the destination is not ground (door)', () => {
+  it('a closed door is not walkable, whatever the heights', () => {
+    const grid = createEmptyGrid(3, 1, 'ground');
+    setTileId(grid, 1, 0, 'door');
+    expect(canStep(grid, { x: 0, y: 0 }, { x: 1, y: 0 })).toBe(false);
+    setHeight(grid, 0, 0, 4);
+    expect(canStep(grid, { x: 0, y: 0 }, { x: 1, y: 0 })).toBe(false);
+  });
+
+  it('skips the height-delta check when the destination is not ground (open door)', () => {
     const grid = createEmptyGrid(3, 1, 'ground');
     setHeight(grid, 0, 0, 4);
-    setTileId(grid, 1, 0, 'door');
-    // Door carries no meaningful height, so a 4-level "delta" to it is irrelevant.
+    setTileId(grid, 1, 0, 'openDoor');
+    // An open door carries no meaningful height, so a 4-level "delta" to it is irrelevant.
     expect(canStep(grid, { x: 0, y: 0 }, { x: 1, y: 0 })).toBe(true);
   });
 
-  it('skips the height-delta check when the origin is not ground (door)', () => {
+  it('skips the height-delta check when the origin is not ground (open door)', () => {
     const grid = createEmptyGrid(3, 1, 'ground');
-    setTileId(grid, 0, 0, 'door');
+    setTileId(grid, 0, 0, 'openDoor');
     setHeight(grid, 1, 0, 4);
     expect(canStep(grid, { x: 0, y: 0 }, { x: 1, y: 0 })).toBe(true);
   });

@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { DIRECTION_VECTORS, addPoints, type Point } from '../src/utils/geometry';
-import { canStep, createEmptyGrid, inBounds, setHeight, type MapGrid } from '../src/world/GameMap';
+import { DIRECTION_VECTORS, addPoints, rectContains, type Point } from '../src/utils/geometry';
+import { canStep, createEmptyGrid, inBounds, isWalkable, setHeight, setTileId, type MapGrid } from '../src/world/GameMap';
 import { loadSpace, type SpaceJSON } from '../src/world/MapLoader';
-import prospectorSaloonJson from '../src/world/goodsprings/prospectorSaloon.json';
 import worldMapJson from '../src/world/goodsprings/worldMap.json';
 
 /**
@@ -31,50 +30,92 @@ function reachableFrom(grid: MapGrid, start: Point): Set<string> {
   return visited;
 }
 
-describe('worldMap.json connectivity', () => {
+/** A copy of `grid` with every closed door swung open — the player opens doors by bumping them. */
+function withDoorsOpened(grid: MapGrid): MapGrid {
+  const copy: MapGrid = { ...grid, tiles: [...grid.tiles], heights: new Uint8Array(grid.heights) };
+  for (let y = 0; y < copy.height; y++) {
+    for (let x = 0; x < copy.width; x++) {
+      if (copy.tiles[y * copy.width + x] === 'door') setTileId(copy, x, y, 'openDoor');
+    }
+  }
+  return copy;
+}
+
+describe('worldMap.json connectivity (doors open when bumped)', () => {
   const space = loadSpace(worldMapJson as SpaceJSON);
   const start = worldMapJson.playerStart;
-  const reachable = reachableFrom(space.grid, start);
+  const opened = withDoorsOpened(space.grid);
+  const reachable = reachableFrom(opened, start);
+  const closedReach = reachableFrom(space.grid, start);
 
   it('reaches every NPC from the player start, respecting the height-step rule', () => {
+    expect(space.npcs.length).toBeGreaterThan(0);
     for (const npc of space.npcs) {
-      expect(reachable.has(`${npc.x},${npc.y}`)).toBe(true);
+      expect(reachable.has(`${npc.x},${npc.y}`), npc.id).toBe(true);
     }
   });
 
-  it('reaches the door transition into the Prospector Saloon', () => {
-    for (const t of space.transitions) {
-      expect(reachable.has(`${t.x},${t.y}`)).toBe(true);
+  it('reaches Trudy in the saloon and Doc Mitchell in his house', () => {
+    const trudy = space.npcs.find((n) => n.id === 'trudy')!;
+    const doc = space.npcs.find((n) => n.id === 'doc-mitchell')!;
+    expect(reachable.has(`${trudy.x},${trudy.y}`)).toBe(true);
+    expect(reachable.has(`${doc.x},${doc.y}`)).toBe(true);
+  });
+
+  it('reaches every monster', () => {
+    expect(space.monsters.length).toBeGreaterThan(0);
+    for (const m of space.monsters) expect(reachable.has(`${m.x},${m.y}`), m.id).toBe(true);
+  });
+
+  it('reaches every walkable interior cell of both buildings once the doors are open', () => {
+    expect(space.places).toHaveLength(2);
+    for (const place of space.places) {
+      let cells = 0;
+      for (let y = place.rect.y; y < place.rect.y + place.rect.height; y++) {
+        for (let x = place.rect.x; x < place.rect.x + place.rect.width; x++) {
+          if (!isWalkable(opened, x, y)) continue; // the wall ring
+          cells++;
+          expect(reachable.has(`${x},${y}`), `${place.name} ${x},${y}`).toBe(true);
+        }
+      }
+      expect(cells).toBeGreaterThan(4);
     }
+  });
+
+  it('keeps each building sealed while its door is closed: the way in is only through the door', () => {
+    const trudy = space.npcs.find((n) => n.id === 'trudy')!;
+    const doc = space.npcs.find((n) => n.id === 'doc-mitchell')!;
+    expect(closedReach.has(`${trudy.x},${trudy.y}`)).toBe(false);
+    expect(closedReach.has(`${doc.x},${doc.y}`)).toBe(false);
+    for (const place of space.places) {
+      for (let y = place.rect.y + 1; y < place.rect.y + place.rect.height - 1; y++) {
+        for (let x = place.rect.x + 1; x < place.rect.x + place.rect.width - 1; x++) {
+          expect(closedReach.has(`${x},${y}`), `${place.name} ${x},${y}`).toBe(false);
+        }
+      }
+      // And no walkable cell of the place's ring is reachable either (closed doors are not walkable).
+      const inside = [...closedReach].filter((k) => {
+        const [x, y] = k.split(',').map(Number) as [number, number];
+        return rectContains(place.rect, { x, y });
+      });
+      expect(inside).toEqual([]);
+    }
+  });
+
+  it('the only way into each building is its door: sealing the door cell with a wall cuts the interior off', () => {
+    const sealed = withDoorsOpened(space.grid);
+    for (let i = 0; i < sealed.tiles.length; i++) if (sealed.tiles[i] === 'openDoor') sealed.tiles[i] = 'wall';
+    const r = reachableFrom(sealed, start);
+    const trudy = space.npcs.find((n) => n.id === 'trudy')!;
+    const doc = space.npcs.find((n) => n.id === 'doc-mitchell')!;
+    expect(r.has(`${trudy.x},${trudy.y}`)).toBe(false);
+    expect(r.has(`${doc.x},${doc.y}`)).toBe(false);
   });
 
   it('does not consider every tile trivially reachable (sanity: rock border is excluded)', () => {
     // Guards against a vacuous flood fill (e.g. one that ignores canStep entirely): the rock
     // border tiles are hard barriers and must never show up as reachable.
     expect(reachable.has('0,0')).toBe(false);
-  });
-});
-
-describe('prospectorSaloon.json connectivity', () => {
-  const space = loadSpace(prospectorSaloonJson as SpaceJSON);
-  // The door sits at local (5,2); (4,2) is the floor tile just inside, facing the door — a
-  // natural interior starting point that doesn't depend on having already crossed the threshold.
-  const doorFacingCell: Point = { x: 4, y: 2 };
-  const reachable = reachableFrom(space.grid, doorFacingCell);
-
-  it('reaches Trudy from the door-facing interior cell', () => {
-    for (const npc of space.npcs) {
-      const local = { x: npc.x - space.worldOrigin.x, y: npc.y - space.worldOrigin.y };
-      expect(reachable.has(`${local.x},${local.y}`)).toBe(true);
-    }
-  });
-
-  it('reaches the door tile and the return-transition vestibule tile', () => {
-    expect(reachable.has('5,2')).toBe(true); // the door itself, local coords
-    for (const t of space.transitions) {
-      const local = { x: t.x - space.worldOrigin.x, y: t.y - space.worldOrigin.y };
-      expect(reachable.has(`${local.x},${local.y}`)).toBe(true);
-    }
   });
 });
 

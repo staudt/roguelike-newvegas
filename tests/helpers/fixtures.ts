@@ -61,6 +61,7 @@ export function buildArena(opts: ArenaOptions): Arena {
     npcs: opts.npcs ?? [],
     monsters: opts.monsters ?? [],
     transitions: [],
+    places: [],
     visible: new Uint8Array(opts.width * opts.height),
     explored: new Uint8Array(opts.width * opts.height),
   };

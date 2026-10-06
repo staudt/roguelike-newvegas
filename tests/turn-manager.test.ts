@@ -5,9 +5,8 @@ import { createPlayer } from '../src/entities/Player';
 import { advanceTurn, tryMovePlayer } from '../src/engine/TurnManager';
 import { EventBus, type GameEvents } from '../src/engine/EventBus';
 import { createGameState, type GameState, type Space } from '../src/engine/GameState';
-import { createEmptyGrid, setTileId } from '../src/world/GameMap';
+import { createEmptyGrid, getTileId, setTileId } from '../src/world/GameMap';
 import { loadSpace, type SpaceJSON } from '../src/world/MapLoader';
-import prospectorSaloonJson from '../src/world/goodsprings/prospectorSaloon.json';
 import worldMapJson from '../src/world/goodsprings/worldMap.json';
 
 /**
@@ -30,6 +29,7 @@ function buildSyntheticState(): { state: GameState; events: EventBus<GameEvents>
     npcs: [npc],
     monsters: [],
     transitions: [],
+    places: [],
     visible: new Uint8Array(25),
     explored: new Uint8Array(25),
   };
@@ -142,48 +142,128 @@ describe('tryMovePlayer / advanceTurn — bump and turn-cost rules', () => {
   });
 });
 
-describe('tryMovePlayer — seamless door crossing (real Goodsprings data)', () => {
+describe('tryMovePlayer — the Prospector Saloon on the real merged map', () => {
   function buildWorldState(): { state: GameState; events: EventBus<GameEvents> } {
     const world = loadSpace(worldMapJson as SpaceJSON);
-    const saloon = loadSpace(prospectorSaloonJson as SpaceJSON);
-
-    // Start two tiles east of the door (world (16,12)) on open ground, facing west toward it.
-    const player = createPlayer(18, 12);
-    const state = createGameState(player, { world, 'prospector-saloon': saloon }, 'world');
-    const events = new EventBus<GameEvents>();
-    return { state, events };
+    world.monsters = []; // deterministic: wildlife is not under test here
+    // Two tiles east of the saloon's east door at (16,12), on open street, facing west.
+    const state = createGameState(createPlayer(18, 12), { world }, 'world');
+    return { state, events: new EventBus<GameEvents>() };
   }
 
-  it('walks from the street, through the door, to the interior vestibule, and back out', () => {
+  it('the door starts closed; bumping it opens it, costs a turn and leaves you outside', () => {
+    const { state, events } = buildWorldState();
+    expect(tryMovePlayer(state, 'W', events)).toBe(true); // (17,12), street
+    expect(getTileId(state.spaces.world!.grid, 16, 12)).toBe('door');
+
+    expect(tryMovePlayer(state, 'W', events)).toBe(true); // bump the door
+    expect(getTileId(state.spaces.world!.grid, 16, 12)).toBe('openDoor');
+    expect(state.player).toMatchObject({ x: 17, y: 12 });
+    expect(state.messageLog).toEqual(['You open the door.']);
+    expect(state.turnCount).toBe(2);
+  });
+
+  it('walks in through the door, says "You enter", and never changes space', () => {
     const { state, events } = buildWorldState();
     const spaceChanges: string[] = [];
-    events.on('space-changed', (payload) => spaceChanges.push(payload.spaceId));
+    events.on('space-changed', (p) => spaceChanges.push(p.spaceId));
 
-    // Approach: plain ground step, no transition here.
-    expect(tryMovePlayer(state, 'W', events)).toBe(true);
-    expect(state.player).toMatchObject({ x: 17, y: 12 });
-    expect(state.activeSpaceId).toBe('world');
-
-    // Step onto the door tile itself — flips into the saloon interior, same world coordinates.
-    expect(tryMovePlayer(state, 'W', events)).toBe(true);
+    tryMovePlayer(state, 'W', events); // (17,12)
+    tryMovePlayer(state, 'W', events); // open the door
+    expect(tryMovePlayer(state, 'W', events)).toBe(true); // onto the door cell (16,12), inside the rect
     expect(state.player).toMatchObject({ x: 16, y: 12 });
-    expect(state.activeSpaceId).toBe('prospector-saloon');
+    expect(state.messageLog).toEqual(['You open the door.', 'You enter Prospector Saloon.']);
 
-    // Step onto the one-tile interior vestibule — flips straight back out to the world.
-    expect(tryMovePlayer(state, 'E', events)).toBe(true);
-    expect(state.player).toMatchObject({ x: 17, y: 12 });
+    expect(tryMovePlayer(state, 'W', events)).toBe(true); // (15,12), further in: no new message
+    expect(state.messageLog).toHaveLength(2);
     expect(state.activeSpaceId).toBe('world');
+    expect(spaceChanges).toEqual([]);
+  });
 
-    expect(spaceChanges).toEqual(['prospector-saloon', 'world']);
+  it('walking back out says "You leave" exactly once', () => {
+    const { state, events } = buildWorldState();
+    for (const d of ['W', 'W', 'W', 'W'] as const) tryMovePlayer(state, d, events); // ends at (15,12)
+    state.messageLog.length = 0;
+
+    tryMovePlayer(state, 'E', events); // (16,12) door cell, still inside the rect
+    expect(state.messageLog).toEqual([]);
+    tryMovePlayer(state, 'E', events); // (17,12), outside
+    expect(state.messageLog).toEqual(['You leave Prospector Saloon.']);
+    tryMovePlayer(state, 'E', events);
+    expect(state.messageLog).toHaveLength(1);
+  });
+
+  it('a single "talk" bump speaks to Trudy, free, once inside', () => {
+    const { state, events } = buildWorldState();
+    const menus: string[] = [];
+    events.on('npc-menu', (p) => menus.push(p.npc.id));
+    for (const d of ['W', 'W', 'W', 'W', 'W'] as const) tryMovePlayer(state, d, events); // (14,12)
+    expect(state.player).toMatchObject({ x: 14, y: 12 });
+    const turns = state.turnCount;
+    state.messageLog.length = 0;
+
+    expect(tryMovePlayer(state, 'W', events)).toBe(false); // Trudy at (13,12)
+    expect(state.player).toMatchObject({ x: 14, y: 12 });
+    expect(state.turnCount).toBe(turns);
+    expect(state.balloons).toHaveLength(1);
+    expect(state.balloons[0]!.entityId).toBe('trudy');
+    expect(state.messageLog[0]).toMatch(/^Trudy: "/);
+    expect(menus).toEqual([]);
+  });
+
+  it('each step and each door-opening costs exactly one turn', () => {
+    const { state, events } = buildWorldState();
+    for (const d of ['W', 'W', 'W'] as const) tryMovePlayer(state, d, events);
+    expect(state.turnCount).toBe(3);
+  });
+});
+
+describe('tryMovePlayer — transitions between spaces (synthetic two-space fixture)', () => {
+  /** Two 6x1 strips sharing world coordinates; stepping on x=3 of A enters B, on x=2 of B returns. */
+  function buildTwoSpaces(): { state: GameState; events: EventBus<GameEvents> } {
+    const mk = (id: string, transitions: Space['transitions']): Space => ({
+      id,
+      name: id,
+      indoor: false,
+      worldOrigin: { x: 0, y: 0 },
+      grid: createEmptyGrid(6, 1, 'ground'),
+      npcs: [],
+      monsters: [],
+      transitions,
+      places: [],
+      visible: new Uint8Array(6),
+      explored: new Uint8Array(6),
+    });
+    const a = mk('a', [{ x: 3, y: 0, toSpace: 'b' }]);
+    const b = mk('b', [{ x: 2, y: 0, toSpace: 'a' }]);
+    const state = createGameState(createPlayer(1, 0), { a, b }, 'a');
+    return { state, events: new EventBus<GameEvents>() };
+  }
+
+  it('crossing a transition cell flips the active space, keeps world coordinates, and flips back', () => {
+    const { state, events } = buildTwoSpaces();
+    const changes: string[] = [];
+    events.on('space-changed', (p) => changes.push(p.spaceId));
+
+    expect(tryMovePlayer(state, 'E', events)).toBe(true); // (2,0), plain
+    expect(state.activeSpaceId).toBe('a');
+    expect(tryMovePlayer(state, 'E', events)).toBe(true); // (3,0), transition
+    expect(state.player).toMatchObject({ x: 3, y: 0 });
+    expect(state.activeSpaceId).toBe('b');
+    expect(tryMovePlayer(state, 'E', events)).toBe(true); // (4,0) in b
+    expect(state.activeSpaceId).toBe('b');
+    expect(tryMovePlayer(state, 'W', events)).toBe(true); // (3,0)
+    expect(tryMovePlayer(state, 'W', events)).toBe(true); // (2,0), transition back
+    expect(state.activeSpaceId).toBe('a');
+
+    expect(changes).toEqual(['b', 'a']);
   });
 
   it('each crossing step still costs exactly one turn', () => {
-    const { state, events } = buildWorldState();
-
-    tryMovePlayer(state, 'W', events);
-    tryMovePlayer(state, 'W', events);
+    const { state, events } = buildTwoSpaces();
     tryMovePlayer(state, 'E', events);
-
+    tryMovePlayer(state, 'E', events);
+    tryMovePlayer(state, 'E', events);
     expect(state.turnCount).toBe(3);
   });
 });

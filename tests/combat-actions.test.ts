@@ -15,7 +15,7 @@ import {
 } from '../src/engine/TurnManager';
 import type { RNG } from '../src/utils/RNG';
 import { loadSpace, type SpaceJSON } from '../src/world/MapLoader';
-import docMitchellsHouseJson from '../src/world/goodsprings/docMitchellsHouse.json';
+import worldMapJson from '../src/world/goodsprings/worldMap.json';
 import { buildArena, scriptedRNG } from './helpers/fixtures';
 
 /** Every roll is a natural 100: every attack misses. */
@@ -169,7 +169,8 @@ describe('fightDirection', () => {
 
 describe('Doc Mitchell (real data): menu, heal, talk', () => {
   function docState() {
-    const space = loadSpace(docMitchellsHouseJson as SpaceJSON);
+    const space = loadSpace(worldMapJson as SpaceJSON);
+    space.monsters = []; // deterministic: wildlife is not under test here
     const player = createPlayer(25, 6); // directly west of Doc at (26,6)
     const state = createGameState(player, { [space.id]: space }, space.id);
     const events = new EventBus<GameEvents>();
@@ -177,7 +178,7 @@ describe('Doc Mitchell (real data): menu, heal, talk', () => {
     for (const name of ['npc-menu', 'npc-interacted', 'attack-prompted', 'turn-ended']) {
       events.on(name, (payload: unknown) => emitted.push({ name, payload }));
     }
-    const doc = space.npcs[0]!;
+    const doc = space.npcs.find((n) => n.id === 'doc-mitchell')!;
     return { state, events, emitted, doc };
   }
 
@@ -213,9 +214,9 @@ describe('Doc Mitchell (real data): menu, heal, talk', () => {
   it('healing restores crippled-leg speed (the world ticks once per action again)', () => {
     const { state, events, doc } = docState();
     for (const l of state.player.limbs) if (l.kind === 'leg') l.hp = 0;
-    useInteraction(state, doc, 'heal', events, scriptedRNG([]));
+    useInteraction(state, doc, 'heal', events, ALWAYS_MISS /* nobody wanders on the real map */);
     const before = state.turnCount;
-    advanceTurn(state, events, scriptedRNG([]));
+    advanceTurn(state, events, ALWAYS_MISS /* nobody wanders on the real map */);
     expect(state.turnCount - before).toBe(1);
   });
 

@@ -9,18 +9,16 @@ import {
   defaultDoorOffset,
   doorCells,
   doorOffsetRange,
-  idToFileName,
   MIN_BUILDING_H,
   MIN_BUILDING_W,
   outsideDoorWalkable,
-  slugify,
   validateBuilding,
   type BuildingRect,
   type DoorSide,
 } from '../world/buildingTemplate';
 import { INTERACTION_LABELS, type InteractionId } from '../entities/Npc';
 import { MONSTERS } from '../entities/MonsterData';
-import { type EditableMonster, type EditableNpc, type EditableTransition, MapDocument } from './MapDocument';
+import { type EditableMonster, type EditableNpc, type EditablePlace, type EditableTransition, MapDocument } from './MapDocument';
 
 /**
  * The map editor.
@@ -36,20 +34,12 @@ import { type EditableMonster, type EditableNpc, type EditableTransition, MapDoc
 type MapFile = string;
 const WORLD_FILE = 'worldMap.json';
 /** Used when the dev server can't list the map directory. */
-const FALLBACK_FILES = ['worldMap.json', 'prospectorSaloon.json', 'docMitchellsHouse.json'];
+const FALLBACK_FILES = ['worldMap.json'];
 
 interface SpaceEntry {
   file: MapFile;
   id: string;
   name: string;
-}
-
-/** A building interior created this session that has not been written to disk yet. */
-interface PendingSpace {
-  file: MapFile;
-  json: SpaceJSON;
-  /** Where its door transition lives on the world map, so an undo of the patch can drop it. */
-  door: { x: number; y: number };
 }
 
 const DEFAULT_CELL = 22;
@@ -59,7 +49,7 @@ type Mode = 'tile' | 'height' | 'npc' | 'monster' | 'transition';
 type TileTool = 'pencil' | 'line' | 'rect' | 'box' | 'building' | 'fill' | 'pick';
 type HeightTool = 'raise' | 'lower' | 'set';
 
-const PAINTABLE_TILES = ['ground', 'rock', 'wall', 'door', 'floor'] as const;
+const PAINTABLE_TILES = ['ground', 'rock', 'wall', 'door', 'openDoor', 'floor'] as const;
 
 async function fetchSpace(file: MapFile): Promise<SpaceJSON> {
   const response = await fetch(`/__map?file=${file}`);
@@ -111,7 +101,6 @@ async function boot(): Promise<void> {
   const paletteEl = root.querySelector<HTMLDivElement>('#palette')!;
   const inspectorEl = root.querySelector<HTMLDivElement>('#inspector')!;
   const saveButton = root.querySelector<HTMLButtonElement>('#save')!;
-  const pendingEl = root.querySelector<HTMLSpanElement>('#pending')!;
 
   let currentFile: MapFile = 'worldMap.json';
   let doc: MapDocument | null = null;
@@ -122,10 +111,10 @@ async function boot(): Promise<void> {
   let previewTo: Point | null = null;
   let dirty = false;
   let spaceEntries: SpaceEntry[] = [];
-  const pendingSpaces = new Map<string, PendingSpace>();
+  let selectedPlace: EditablePlace | null = null;
   /** The rectangle dragged with the Building tool, awaiting its form. */
   let buildingRect: BuildingRect | null = null;
-  let buildingForm = { name: '', id: '', idEdited: false, side: 'S' as DoorSide, offset: 1 };
+  let buildingForm = { name: '', side: 'S' as DoorSide, offset: 1 };
   let buildingMessage = '';
 
   let mode: Mode = 'tile';
@@ -158,10 +147,9 @@ async function boot(): Promise<void> {
       fileSelect.value = file;
       history.replaceState(null, '', `#${file}`);
       dirty = false;
-      pendingSpaces.clear();
+      selectedPlace = null;
       buildingRect = null;
       buildingMessage = '';
-      refreshPending();
       selectedNpcId = null;
       selectedTransition = null;
       selectedMonster = null;
@@ -181,7 +169,7 @@ async function boot(): Promise<void> {
   }
 
   fileSelect.addEventListener('change', () => {
-    if ((dirty || pendingSpaces.size > 0) && !window.confirm('Discard unsaved changes and load the other map?')) {
+    if (dirty && !window.confirm('Discard unsaved changes and load the other map?')) {
       fileSelect.value = currentFile;
       return;
     }
@@ -204,13 +192,8 @@ async function boot(): Promise<void> {
     renderFileOptions();
   }
 
-  function refreshPending(): void {
-    const n = pendingSpaces.size;
-    pendingEl.textContent = n > 0 ? `+${n} new space${n === 1 ? '' : 's'}` : '';
-  }
-
   window.addEventListener('beforeunload', (event) => {
-    if (dirty || pendingSpaces.size > 0) event.preventDefault();
+    if (dirty) event.preventDefault();
   });
 
   // --- drawing ----------------------------------------------------------------------------------
@@ -253,6 +236,7 @@ async function boot(): Promise<void> {
       }
     }
 
+    drawPlaces();
     for (const transition of doc.transitions) {
       drawMarker(transition.x, transition.y, '>', PALETTE.interactableFg, transition === selectedTransition);
     }
@@ -270,6 +254,28 @@ async function boot(): Promise<void> {
     }
 
     drawShapePreview();
+  }
+
+  /** Faint dashed amber outline + name for each place, so the named rectangles are visible. */
+  function drawPlaces(): void {
+    if (!doc) return;
+    ctx.save();
+    for (const place of doc.places) {
+      const r = place.rect;
+      const selected = place === selectedPlace;
+      ctx.strokeStyle = PALETTE.uiAmber;
+      ctx.globalAlpha = selected ? 1 : 0.45;
+      ctx.lineWidth = selected ? 2 : 1;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(r.x * cellW + 0.5, r.y * cell + 0.5, r.width * cellW - 1, r.height * cell - 1);
+      ctx.setLineDash([]);
+      ctx.fillStyle = PALETTE.uiAmber;
+      ctx.font = `${Math.max(8, Math.round(cell * 0.45))}px ${FONT_FAMILY}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(place.name, r.x * cellW + 3, r.y * cell + 3);
+    }
+    ctx.restore();
   }
 
   /** Live outline of the line/rect/box being dragged, so you can see it before letting go. */
@@ -622,11 +628,9 @@ async function boot(): Promise<void> {
     if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !typing) {
       event.preventDefault();
       if (doc?.undo()) {
-        // Undoing a building patch removes its door transition; its pending interior goes with it.
-        for (const [id, pending] of pendingSpaces) {
-          if (doc.transitionAt(pending.door.x, pending.door.y)?.toSpace !== id) pendingSpaces.delete(id);
-        }
-        refreshPending();
+        selectedPlace = null;
+        refreshPalette();
+        markDirty();
         buildingRect = null;
         selectedMonster = null;
         selectedTransition = null;
@@ -702,6 +706,65 @@ async function boot(): Promise<void> {
     return div;
   }
 
+  function buildPlacesList(): HTMLElement {
+    const box = document.createElement('div');
+    box.className = 'places';
+    const title = document.createElement('div');
+    title.className = 'id-display';
+    title.textContent = 'Places';
+    box.append(title);
+    if (!doc || doc.places.length === 0) {
+      box.append(buildHint('No places yet.'));
+      return box;
+    }
+    for (const place of doc.places) {
+      const row = document.createElement('div');
+      row.className = `place-row${place === selectedPlace ? ' on' : ''}`;
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = place.name;
+      input.addEventListener('focus', () => {
+        if (selectedPlace === place) return;
+        selectedPlace = place;
+        for (const r of box.querySelectorAll('.place-row')) r.classList.toggle('on', r === row);
+        redraw();
+      });
+      input.addEventListener('change', () => {
+        const name = input.value.trim();
+        if (name === '') {
+          input.value = place.name;
+          return;
+        }
+        doc?.beginStroke();
+        doc?.renamePlace(place, name);
+        redraw();
+        markDirty();
+      });
+      const select = document.createElement('button');
+      select.textContent = '\u25a1';
+      select.title = `Highlight ${place.name} (${place.rect.x},${place.rect.y} ${place.rect.width}x${place.rect.height})`;
+      select.addEventListener('click', () => {
+        selectedPlace = place;
+        refreshPalette();
+        redraw();
+      });
+      const del = document.createElement('button');
+      del.textContent = 'x';
+      del.className = 'danger';
+      del.title = 'Delete place (tiles stay)';
+      del.addEventListener('click', () => {
+        doc?.removePlace(place);
+        if (selectedPlace === place) selectedPlace = null;
+        refreshPalette();
+        redraw();
+        markDirty();
+      });
+      row.append(select, input, del);
+      box.append(row);
+    }
+    return box;
+  }
+
   function buildTilePalette(): HTMLElement {
     const wrap = document.createElement('div');
 
@@ -734,9 +797,10 @@ async function boot(): Promise<void> {
     if (tileTool === 'building') {
       wrap.append(
         buildHint(
-          `Drag a rectangle on the world map (at least ${MIN_BUILDING_W}x${MIN_BUILDING_H}); a form appears on the right to name it, pick the door and create the building and its interior space.`,
+          `Drag a rectangle on the world map (at least ${MIN_BUILDING_W}x${MIN_BUILDING_H}); a form appears on the right to name it, pick the door and create the building.`,
         ),
       );
+      wrap.append(buildPlacesList());
       return wrap;
     }
 
@@ -874,23 +938,18 @@ async function boot(): Promise<void> {
   function beginBuildingForm(rect: BuildingRect): void {
     buildingRect = rect;
     buildingMessage = '';
-    buildingForm = { name: '', id: '', idEdited: false, side: 'S', offset: defaultDoorOffset(rect, 'S') };
+    buildingForm = { name: '', side: 'S', offset: defaultDoorOffset(rect, 'S') };
     refreshInspector();
     redraw();
   }
 
   function currentBuildingParams(rect: BuildingRect) {
     return {
-      id: buildingForm.id,
       name: buildingForm.name,
       rect,
       doorSide: buildingForm.side,
       doorOffset: buildingForm.offset,
     };
-  }
-
-  function allSpaceIds(): string[] {
-    return [...spaceEntries.map((e) => e.id), ...pendingSpaces.keys()];
   }
 
   function buildBuildingForm(rect: BuildingRect): HTMLElement {
@@ -905,9 +964,6 @@ async function boot(): Promise<void> {
     nameInput.type = 'text';
     nameInput.placeholder = 'Goodsprings General Store';
     nameInput.value = buildingForm.name;
-    const idInput = document.createElement('input');
-    idInput.type = 'text';
-    idInput.value = buildingForm.id;
     const sideSelect = document.createElement('select');
     for (const [value, label] of [['N', 'North'], ['S', 'South'], ['E', 'East'], ['W', 'West']] as const) {
       const option = document.createElement('option');
@@ -929,7 +985,7 @@ async function boot(): Promise<void> {
     const refreshMessage = (): void => {
       if (!doc) return;
       const json = doc.toJSON();
-      const errors = validateBuilding(json, allSpaceIds(), currentBuildingParams(rect));
+      const errors = validateBuilding(json, currentBuildingParams(rect));
       const lines = errors.map((e) => `x ${e}`);
       if (errors.length === 0 && !outsideDoorWalkable(json, rect, buildingForm.side, buildingForm.offset)) {
         lines.push('! The cell outside the door is not walkable (rock/wall) - the door will open onto nothing.');
@@ -941,16 +997,6 @@ async function boot(): Promise<void> {
 
     nameInput.addEventListener('input', () => {
       buildingForm.name = nameInput.value;
-      if (!buildingForm.idEdited) {
-        buildingForm.id = slugify(nameInput.value);
-        idInput.value = buildingForm.id;
-      }
-      buildingMessage = '';
-      refreshMessage();
-    });
-    idInput.addEventListener('input', () => {
-      buildingForm.id = idInput.value;
-      buildingForm.idEdited = true;
       buildingMessage = '';
       refreshMessage();
     });
@@ -971,7 +1017,7 @@ async function boot(): Promise<void> {
       redraw();
     });
 
-    form.append(field('Name', nameInput), field('Id', idInput), field('Door side', sideSelect));
+    form.append(field('Name', nameInput), field('Door side', sideSelect));
     form.append(field(`Door position along that side (${range().min}..${range().max})`, offsetInput));
     form.append(messageEl);
 
@@ -980,23 +1026,17 @@ async function boot(): Promise<void> {
     createButton.addEventListener('click', () => {
       if (!doc) return;
       const params = currentBuildingParams(rect);
-      const errors = validateBuilding(doc.toJSON(), allSpaceIds(), params);
+      const errors = validateBuilding(doc.toJSON(), params);
       if (doc.id !== 'world') errors.unshift('Buildings can only be created while editing the world map.');
       if (errors.length > 0) {
         buildingMessage = 'Cannot create:';
         refreshMessage();
         return;
       }
-      const result = buildBuilding(params);
-      doc.applyBuildingPatch(result.outdoorPatch);
-      pendingSpaces.set(params.id, {
-        file: uniqueFileName(params.id),
-        json: result.interior,
-        door: { x: result.outdoorPatch.transition.x, y: result.outdoorPatch.transition.y },
-      });
+      doc.applyBuildingPatch(buildBuilding(params));
       buildingRect = null;
       buildingMessage = '';
-      refreshPending();
+      refreshPalette();
       refreshInspector();
       redraw();
       markDirty();
@@ -1015,13 +1055,6 @@ async function boot(): Promise<void> {
     form.append(buttons);
     refreshMessage();
     return form;
-  }
-
-  function uniqueFileName(id: string): string {
-    const taken = new Set([...spaceEntries.map((e) => e.file), ...[...pendingSpaces.values()].map((p) => p.file)]);
-    let file = idToFileName(id);
-    for (let n = 2; taken.has(file); n++) file = idToFileName(`${id}-${n}`);
-    return file;
   }
 
   function buildNpcForm(npc: EditableNpc): HTMLElement {
@@ -1231,26 +1264,7 @@ async function boot(): Promise<void> {
 
   async function save(): Promise<void> {
     if (!doc) return;
-    // New interiors first, the world map (which references them) last — a half-finished save then
-    // leaves orphan files rather than a door into a space that does not exist.
-    let failedNew = 0;
-    for (const [id, pending] of [...pendingSpaces]) {
-      const json = JSON.stringify(pending.json, null, 2) + '\n';
-      if (await post(pending.file, json)) {
-        pendingSpaces.delete(id);
-      } else {
-        failedNew++;
-        downloadFallback(json, pending.file);
-      }
-    }
-    refreshPending();
-
     const json = JSON.stringify(doc.toJSON(), null, 2) + '\n';
-    if (failedNew > 0) {
-      downloadFallback(json);
-      saveButton.textContent = 'Save failed — downloaded instead';
-      return;
-    }
     if (await post(currentFile, json)) {
       dirty = false;
       saveButton.textContent = 'Saved';
@@ -1287,7 +1301,6 @@ const LAYOUT = `
       <button data-zoom="1">+</button>
     </span>
     <span class="grow"></span>
-    <span id="pending"></span>
     <span id="status">&nbsp;</span>
     <button id="save">Save</button>
   </header>
@@ -1314,7 +1327,11 @@ const STYLE = `
   button.on { background: ${PALETTE.uiGreen}; border-color: ${PALETTE.uiGreen}; color: #06250f; }
   button.danger { border-color: ${PALETTE.uiDanger}; color: ${PALETTE.uiDanger}; margin-top: 8px; }
   .tools { display: flex; flex-wrap: wrap; gap: 4px; }
-  #pending { color: ${PALETTE.uiAmber}; }
+  .places { margin-top: 12px; display: flex; flex-direction: column; gap: 4px; }
+  .place-row { display: flex; gap: 4px; align-items: center; }
+  .place-row.on { outline: 2px solid ${PALETTE.uiAmber}; }
+  .place-row input { flex: 1; min-width: 0; padding: 3px 6px; }
+  .place-row button { padding: 2px 6px; margin: 0; }
   #status { color: ${PALETTE.uiDim}; min-width: 140px; }
   #load-error { padding: 6px 12px; }
   #load-error.bad { background: #3a1616; color: #ffb4b4; border-bottom: 1px solid ${PALETTE.uiBorder}; }

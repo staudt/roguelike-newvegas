@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { createPlayer } from '../src/entities/Player';
 import { EventBus, type GameEvents } from '../src/engine/EventBus';
-import { createGameState } from '../src/engine/GameState';
+import { createGameState, placeAt } from '../src/engine/GameState';
 import { tryMovePlayer } from '../src/engine/TurnManager';
-import { DIRECTION_VECTORS, addPoints, type Point } from '../src/utils/geometry';
-import { canStep, getTileId, inBounds, isWalkable, type MapGrid } from '../src/world/GameMap';
+import { DIRECTION_VECTORS, addPoints, rectContains, type Point, type Rect } from '../src/utils/geometry';
+import { canStep, getTileId, inBounds, isWalkable, setTileId, type MapGrid } from '../src/world/GameMap';
 import { loadSpace, type SpaceJSON } from '../src/world/MapLoader';
-import docMitchellsHouseJson from '../src/world/goodsprings/docMitchellsHouse.json';
-import prospectorSaloonJson from '../src/world/goodsprings/prospectorSaloon.json';
 import worldMapJson from '../src/world/goodsprings/worldMap.json';
 
 /** Same real-rule (`canStep`) flood fill as map-connectivity.test.ts, over all 8 directions. */
@@ -29,97 +27,123 @@ function reachableFrom(grid: MapGrid, start: Point): Set<string> {
   return visited;
 }
 
-describe('docMitchellsHouse.json', () => {
-  const space = loadSpace(docMitchellsHouseJson as SpaceJSON);
-  const toLocal = (p: Point): Point => ({ x: p.x - space.worldOrigin.x, y: p.y - space.worldOrigin.y });
+/** A copy of the grid with every closed door opened — the player opens doors by bumping them. */
+function withDoorsOpened(grid: MapGrid): MapGrid {
+  const copy: MapGrid = { ...grid, tiles: [...grid.tiles], heights: new Uint8Array(grid.heights) };
+  for (let y = 0; y < copy.height; y++) {
+    for (let x = 0; x < copy.width; x++) if (getTileId(copy, x, y) === 'door') setTileId(copy, x, y, 'openDoor');
+  }
+  return copy;
+}
 
-  // The exit transition's cell (world (22,6)) is the one-tile vestibule just outside the door.
-  const vestibule = toLocal({ x: 22, y: 6 });
-  const reachable = reachableFrom(space.grid, vestibule);
+const SALOON: Rect = { x: 11, y: 10, width: 6, height: 5 };
+const HOUSE: Rect = { x: 23, y: 4, width: 6, height: 5 };
 
-  it('is an indoor space anchored at world (22,4) and sized 7x5', () => {
-    expect(space.id).toBe('doc-mitchells-house');
-    expect(space.indoor).toBe(true);
-    expect(space.worldOrigin).toEqual({ x: 22, y: 4 });
-    expect([space.grid.width, space.grid.height]).toEqual([7, 5]);
+/** Cells on the outer ring of a rect. */
+function ringCells(r: Rect): Point[] {
+  const out: Point[] = [];
+  for (let y = r.y; y < r.y + r.height; y++) {
+    for (let x = r.x; x < r.x + r.width; x++) {
+      if (x === r.x || y === r.y || x === r.x + r.width - 1 || y === r.y + r.height - 1) out.push({ x, y });
+    }
+  }
+  return out;
+}
+
+describe('worldMap.json places', () => {
+  const space = loadSpace(worldMapJson as SpaceJSON);
+
+  it("names exactly the saloon and the doctor's house, with the expected rects", () => {
+    expect(space.places).toEqual([
+      { name: 'Prospector Saloon', rect: SALOON },
+      { name: "Doc Mitchell's House", rect: HOUSE },
+    ]);
   });
 
-  it('has its door at world (23,6) and the exit vestibule at world (22,6)', () => {
-    const door = toLocal({ x: 23, y: 6 });
-    expect(getTileId(space.grid, door.x, door.y)).toBe('door');
-    expect(isWalkable(space.grid, vestibule.x, vestibule.y)).toBe(true);
-    expect(space.transitions).toEqual([{ x: 22, y: 6, toSpace: 'world' }]);
+  it('every place lies inside the map and its ring is wall except exactly one door', () => {
+    for (const place of space.places) {
+      const { rect } = place;
+      expect(inBounds(space.grid, rect.x, rect.y)).toBe(true);
+      expect(inBounds(space.grid, rect.x + rect.width - 1, rect.y + rect.height - 1)).toBe(true);
+      const ring = ringCells(rect).map((p) => getTileId(space.grid, p.x, p.y));
+      expect(ring.filter((t) => t === 'door'), place.name).toHaveLength(1);
+      expect(ring.filter((t) => t !== 'door').every((t) => t === 'wall'), place.name).toBe(true);
+    }
   });
 
-  it('is reachable end to end from the vestibule: door, floor, and Doc', () => {
-    const door = toLocal({ x: 23, y: 6 });
-    expect(reachable.has(`${door.x},${door.y}`)).toBe(true);
-
-    expect(space.npcs).toHaveLength(1);
-    const doc = space.npcs[0]!;
-    expect(doc).toMatchObject({ id: 'doc-mitchell', x: 26, y: 6 });
-    const docLocal = toLocal(doc);
-    expect(getTileId(space.grid, docLocal.x, docLocal.y)).toBe('floor');
-    expect(reachable.has(`${docLocal.x},${docLocal.y}`)).toBe(true);
+  it('the saloon door is on its east wall at (16,12) and the house door on its west wall at (23,6)', () => {
+    expect(getTileId(space.grid, 16, 12)).toBe('door');
+    expect(getTileId(space.grid, 23, 6)).toBe('door');
   });
 
-  it('every floor tile in the house is reachable from the vestibule', () => {
-    for (let y = 0; y < space.grid.height; y++) {
-      for (let x = 0; x < space.grid.width; x++) {
-        if (isWalkable(space.grid, x, y)) expect(reachable.has(`${x},${y}`)).toBe(true);
+  it('the interior of each place is floor', () => {
+    for (const { rect } of space.places) {
+      for (let y = rect.y + 1; y < rect.y + rect.height - 1; y++) {
+        for (let x = rect.x + 1; x < rect.x + rect.width - 1; x++) {
+          expect(getTileId(space.grid, x, y)).toBe('floor');
+        }
       }
     }
   });
 
+  it('every place contains its NPCs: Trudy in the saloon, Doc in his house, nobody else inside', () => {
+    const inside = (rect: Rect) => space.npcs.filter((n) => rectContains(rect, n)).map((n) => n.id);
+    expect(inside(SALOON)).toEqual(['trudy']);
+    expect(inside(HOUSE)).toEqual(['doc-mitchell']);
+    const trudy = space.npcs.find((n) => n.id === 'trudy')!;
+    const doc = space.npcs.find((n) => n.id === 'doc-mitchell')!;
+    expect(trudy).toMatchObject({ x: 13, y: 12 });
+    expect(doc).toMatchObject({ x: 26, y: 6 });
+    expect(placeAt(space, trudy)?.name).toBe('Prospector Saloon');
+    expect(placeAt(space, doc)?.name).toBe("Doc Mitchell's House");
+  });
+
   it('Doc offers talk and heal, and has some dialogue', () => {
-    const doc = space.npcs[0]!;
+    const doc = space.npcs.find((n) => n.id === 'doc-mitchell')!;
     expect(doc.interactions).toEqual(['talk', 'heal']);
     expect(doc.dialogue.length).toBeGreaterThan(0);
   });
 
-  it('the return transition cell is itself reachable', () => {
-    for (const t of space.transitions) {
-      const local = toLocal(t);
-      expect(reachable.has(`${local.x},${local.y}`)).toBe(true);
-    }
+  it('no monster starts inside a building', () => {
+    for (const m of space.monsters) expect(placeAt(space, m)).toBeUndefined();
   });
 
-  it('walking in from the street with the real world data reaches Doc and the way back out', () => {
-    const world = loadSpace(worldMapJson as SpaceJSON);
-    const saloon = loadSpace(prospectorSaloonJson as SpaceJSON);
-    const house = loadSpace(docMitchellsHouseJson as SpaceJSON);
-    const state = createGameState(
-      createPlayer(21, 6),
-      { world, 'prospector-saloon': saloon, 'doc-mitchells-house': house },
-      'world',
-    );
-    const events = new EventBus<GameEvents>();
-    const names: string[] = [];
-    events.on('npc-menu', () => names.push('npc-menu'));
-    events.on('space-changed', (p) => names.push(`space:${p.spaceId}`));
+  it('has no transitions: the buildings are part of the one map', () => {
+    expect(space.transitions).toEqual([]);
+  });
 
-    expect(tryMovePlayer(state, 'E', events)).toBe(true); // (22,6) street, no transition
-    expect(state.activeSpaceId).toBe('world');
-    expect(tryMovePlayer(state, 'E', events)).toBe(true); // (23,6) the door
-    expect(state.activeSpaceId).toBe('doc-mitchells-house');
+  it('walking in from the street to Doc: open the door, step in, bump Doc for his menu, walk back out', () => {
+    const world = loadSpace(worldMapJson as SpaceJSON);
+    world.monsters = []; // keep the walk deterministic: no radroach wandering through the open door
+    const state = createGameState(createPlayer(21, 6), { world }, 'world');
+    const events = new EventBus<GameEvents>();
+    const seen: string[] = [];
+    events.on('npc-menu', () => seen.push('npc-menu'));
+    events.on('space-changed', (p) => seen.push(`space:${p.spaceId}`));
+
+    expect(tryMovePlayer(state, 'E', events)).toBe(true); // (22,6) street
+    expect(tryMovePlayer(state, 'E', events)).toBe(true); // bump: door opens
+    expect(state.player).toMatchObject({ x: 22, y: 6 });
+    expect(getTileId(world.grid, 23, 6)).toBe('openDoor');
+    expect(tryMovePlayer(state, 'E', events)).toBe(true); // (23,6) the doorway
+    expect(state.messageLog.at(-1)).toBe("You enter Doc Mitchell's House.");
     expect(tryMovePlayer(state, 'E', events)).toBe(true); // (24,6)
     expect(tryMovePlayer(state, 'E', events)).toBe(true); // (25,6)
     expect(tryMovePlayer(state, 'E', events)).toBe(false); // bump Doc at (26,6)
     expect(state.player).toMatchObject({ x: 25, y: 6 });
 
-    // Walk back out: (24,6), the door (23,6), then the vestibule (22,6) flips to the world.
-    expect(tryMovePlayer(state, 'W', events)).toBe(true);
-    expect(tryMovePlayer(state, 'W', events)).toBe(true);
-    expect(tryMovePlayer(state, 'W', events)).toBe(true);
+    for (let i = 0; i < 3; i++) expect(tryMovePlayer(state, 'W', events)).toBe(true); // 24, 23, 22
     expect(state.player).toMatchObject({ x: 22, y: 6 });
+    expect(state.messageLog.at(-1)).toBe("You leave Doc Mitchell's House.");
     expect(state.activeSpaceId).toBe('world');
-    expect(names).toEqual(['space:doc-mitchells-house', 'npc-menu', 'space:world']);
+    expect(seen).toEqual(['npc-menu']);
   });
 });
 
 describe('worldMap.json monsters', () => {
   const space = loadSpace(worldMapJson as SpaceJSON);
-  const reachable = reachableFrom(space.grid, worldMapJson.playerStart);
+  // Doors open when bumped, so reachability is judged with them swung open.
+  const reachable = reachableFrom(withDoorsOpened(space.grid), worldMapJson.playerStart);
 
   it('places the expected wildlife', () => {
     const counts: Record<string, number> = {};
@@ -127,11 +151,11 @@ describe('worldMap.json monsters', () => {
     expect(counts).toEqual({ gecko: 2, bloatfly: 1, radroach: 2, brahmin: 1 });
   });
 
-  it('every monster stands on a walkable, non-door tile reachable from playerStart (real canStep rule)', () => {
+  it('every monster stands on a walkable, non-door tile reachable from playerStart (real canStep rule, doors opened)', () => {
     expect(space.monsters.length).toBeGreaterThan(0);
     for (const m of space.monsters) {
       expect(isWalkable(space.grid, m.x, m.y)).toBe(true);
-      expect(getTileId(space.grid, m.x, m.y)).not.toBe('door');
+      expect(['door', 'openDoor']).not.toContain(getTileId(space.grid, m.x, m.y));
       expect(reachable.has(`${m.x},${m.y}`)).toBe(true);
     }
   });
@@ -159,12 +183,9 @@ describe('worldMap.json monsters', () => {
     for (const m of space.monsters) expect(m.alerted).toBe(false);
   });
 
-  it('the world has transitions for both buildings, and the Doc door tile is a door', () => {
-    expect(space.transitions.map((t) => t.toSpace).sort()).toEqual(['doc-mitchells-house', 'prospector-saloon']);
-    expect(getTileId(space.grid, 23, 6)).toBe('door');
-  });
-
-  it('the Doc door is reachable from the player start', () => {
+  it('both door cells and the street outside each are reachable from the player start', () => {
+    expect(reachable.has('16,12')).toBe(true);
+    expect(reachable.has('17,12')).toBe(true);
     expect(reachable.has('23,6')).toBe(true);
     expect(reachable.has('22,6')).toBe(true);
   });

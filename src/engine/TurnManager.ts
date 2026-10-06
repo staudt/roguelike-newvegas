@@ -8,12 +8,13 @@ import { computeVisible, markExplored } from '../fov/Visibility';
 import { itemDef } from '../items/ItemData';
 import { addPoints, type Direction, DIRECTION_VECTORS } from '../utils/geometry';
 import { defaultRNG, type RNG } from '../utils/RNG';
-import { canStep } from '../world/GameMap';
+import { canStep, getTileId, setTileId } from '../world/GameMap';
 import { playerAttacks } from './Combat';
 import type { EventBus, GameEvents } from './EventBus';
 import {
   addMessage,
   getActiveSpace,
+  placeAt,
   sightRadiusFor,
   worldToLocal,
   type GameState,
@@ -97,7 +98,18 @@ export function tryMovePlayer(
 
   const fromLocal = worldToLocal(space, state.player);
   const toLocal = worldToLocal(space, target);
+
+  // Walking into a closed door opens it (takes the turn, and you stay put) — NetHack's rule.
+  if (getTileId(space.grid, toLocal.x, toLocal.y) === 'door') {
+    setTileId(space.grid, toLocal.x, toLocal.y, 'openDoor');
+    addMessage(state, 'You open the door.');
+    advanceTurn(state, events, rng);
+    return true;
+  }
+
   if (!canStep(space.grid, fromLocal, toLocal)) return false;
+
+  const placeBefore = placeAt(space, state.player)?.name;
 
   // Actually moving (as opposed to bumping) ends any conversation in progress — a lingering
   // balloon over your shoulder as you walk away reads as stale, not as "still talking."
@@ -110,6 +122,12 @@ export function tryMovePlayer(
   if (transition) {
     state.activeSpaceId = transition.toSpace;
     events.emit('space-changed', { spaceId: transition.toSpace });
+  }
+
+  const placeAfter = placeAt(getActiveSpace(state), state.player)?.name;
+  if (placeAfter !== placeBefore) {
+    if (placeAfter) addMessage(state, `You enter ${placeAfter}.`);
+    else if (placeBefore) addMessage(state, `You leave ${placeBefore}.`);
   }
 
   advanceTurn(state, events, rng);

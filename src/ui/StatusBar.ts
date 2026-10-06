@@ -1,6 +1,6 @@
 import { limbCondition } from '../combat/Limbs';
 import type { GameState } from '../engine/GameState';
-import { getActiveSpace } from '../engine/GameState';
+import { locationName } from '../engine/GameState';
 
 const DANGER_FRACTION = 0.3;
 
@@ -27,7 +27,6 @@ export class StatusBar {
   }
 
   render(state: GameState, prompt: string | null = null): void {
-    const space = getActiveSpace(state);
     const p = state.player;
     this.el.innerHTML = '';
     if (prompt) this.appendField('', prompt, 'status-prompt');
@@ -41,7 +40,7 @@ export class StatusBar {
       if (cond === 'ok') continue;
       this.appendField('', `${limbShortName(limb.name)} ${cond}`, cond === 'crippled' ? 'status-danger' : 'status-warn');
     }
-    this.appendField('Location', space.name);
+    this.appendField('Location', locationName(state));
     this.appendField('Position', `${p.x},${p.y}`);
     this.appendField('Turn', String(state.turnCount));
   }

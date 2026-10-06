@@ -34,13 +34,23 @@ export const TILES: Record<string, TileDef> = {
     fg: PALETTE.wallFg,
     bg: PALETTE.wallBg,
   },
+  // A closed door blocks movement and sight; bumping it opens it (see TurnManager). Once open it
+  // is ordinary walkable, see-through floor, so a lit room is visible through its open door.
   door: {
     id: 'door',
-    walkable: true,
-    opaque: true, // can't see a saloon interior through the doorway from the street
+    walkable: false,
+    opaque: true,
     glyph: '+',
     fg: PALETTE.doorFg,
     bg: PALETTE.doorBg,
+  },
+  openDoor: {
+    id: 'openDoor',
+    walkable: true,
+    opaque: false,
+    glyph: "'",
+    fg: PALETTE.doorFg,
+    bg: PALETTE.floorBg,
   },
   floor: {
     id: 'floor',

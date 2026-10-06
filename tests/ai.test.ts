@@ -203,16 +203,16 @@ describe('hostile pathing', () => {
     expect(chebyshevDistance(m, arena.state.player)).toBeLessThanOrEqual(1);
   });
 
-  it('never enters a door: a door in a corridor stops the hunter', () => {
+  it('a closed door in a corridor stops the hunter (creatures never open doors)', () => {
     const m = hunter(4, 0);
     const arena = arenaWith({ width: 10, height: 1, player: { x: 0, y: 0 }, doors: [[2, 0]] }, m);
     m.alerted = true;
     for (let i = 0; i < 6; i++) tick(arena);
     expect(m.x).toBe(4); // no route that avoids the door, so it holds position
-    expect(getTileId(arena.grid, m.x, m.y)).not.toBe('door');
+    expect(getTileId(arena.grid, 2, 0)).toBe('door');
   });
 
-  it('never enters a door even when the door is the shortest way: it goes round', () => {
+  it('a closed door is routed around even when it is the shortest way', () => {
     const m = hunter(4, 1);
     const arena = arenaWith({ width: 10, height: 3, player: { x: 0, y: 1 }, doors: [[2, 1]] }, m);
     m.alerted = true;

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { isWalkable } from '../src/world/GameMap';
 import { loadSpace, serializeSpace, type SpaceJSON } from '../src/world/MapLoader';
-import prospectorSaloonJson from '../src/world/goodsprings/prospectorSaloon.json';
 import worldMapJson from '../src/world/goodsprings/worldMap.json';
 
 function buildFixture(): SpaceJSON {
@@ -17,6 +16,7 @@ function buildFixture(): SpaceJSON {
     npcs: [{ id: 'npc-1', name: 'Fixture NPC', x: 4, y: 7, dialogue: ['Hello there.'], fg: '#abcdef', interactions: ['talk'] }],
     monsters: [{ defId: 'gecko', x: 4, y: 8 }],
     transitions: [{ x: 5, y: 7, toSpace: 'world' }],
+    places: [{ name: 'Fixture Hall', rect: { x: 3, y: 7, width: 2, height: 2 } }],
   };
 }
 
@@ -37,6 +37,20 @@ describe('loadSpace / serializeSpace round trip', () => {
     expect(space.grid.height).toBe(fixture.height);
     expect(space.grid.tiles).toEqual(fixture.tiles);
     expect(Array.from(space.grid.heights)).toEqual(fixture.heights);
+  });
+
+  it('loads places as named rects, copied rather than aliased', () => {
+    const fixture = buildFixture();
+    const space = loadSpace(fixture);
+    expect(space.places).toEqual([{ name: 'Fixture Hall', rect: { x: 3, y: 7, width: 2, height: 2 } }]);
+    space.places[0]!.rect.x = 99;
+    expect(fixture.places![0]!.rect.x).toBe(3);
+  });
+
+  it('treats an omitted places list as none', () => {
+    const fixture = buildFixture();
+    delete fixture.places;
+    expect(loadSpace(fixture).places).toEqual([]);
   });
 
   it('loads npcs, transitions, worldOrigin, and indoor flag', () => {
@@ -105,43 +119,17 @@ describe('real Goodsprings content: worldMap.json', () => {
     }
   });
 
-  it('has the documented door transition into the Prospector Saloon', () => {
-    expect(space.transitions).toContainEqual({ x: 16, y: 12, toSpace: 'prospector-saloon' });
+  it('has no transitions: the buildings are part of the one map now', () => {
+    expect(space.transitions).toEqual([]);
+  });
+
+  it('has places: the Prospector Saloon and Doc Mitchell House', () => {
+    expect(space.places.map((p) => p.name)).toEqual(["Prospector Saloon", "Doc Mitchell's House"]);
   });
 
   it('documents a playerStart on walkable ground', () => {
     const start = worldMapJson.playerStart;
     expect(start).toEqual({ x: 18, y: 24 });
     expect(isWalkable(space.grid, start.x, start.y)).toBe(true);
-  });
-});
-
-describe('real Goodsprings content: prospectorSaloon.json', () => {
-  const space = loadSpace(prospectorSaloonJson as SpaceJSON);
-
-  it('has dimensions matching its tiles/heights arrays', () => {
-    expect(space.grid.tiles).toHaveLength(
-      prospectorSaloonJson.width * prospectorSaloonJson.height,
-    );
-    expect(space.grid.heights).toHaveLength(
-      prospectorSaloonJson.width * prospectorSaloonJson.height,
-    );
-  });
-
-  it('places every NPC (world coords, converted to local) on a walkable tile', () => {
-    for (const npc of space.npcs) {
-      const localX = npc.x - space.worldOrigin.x;
-      const localY = npc.y - space.worldOrigin.y;
-      expect(isWalkable(space.grid, localX, localY)).toBe(true);
-    }
-  });
-
-  it('has the documented return transition back to the world, at the vestibule tile', () => {
-    expect(space.transitions).toContainEqual({ x: 17, y: 12, toSpace: 'world' });
-  });
-
-  it('is indoors with the documented worldOrigin', () => {
-    expect(space.indoor).toBe(true);
-    expect(space.worldOrigin).toEqual({ x: 11, y: 10 });
   });
 });

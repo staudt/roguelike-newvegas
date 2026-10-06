@@ -14,11 +14,15 @@ effects, weapon-driven hit location, log lines that always name the weapon, perm
 bloatflies / radroaches / a peaceful brahmin, Doc Mitchell's enterable house with a Talk/Heal menu,
 editor support for monsters and NPC interactions. 245 tests.
 
-## In progress — M2.5: editor "New building" + auto-loaded spaces
-Drag a rectangle on the world map, pick a door side, and get the outdoor shell + door + a matching
-interior file with the exit vestibule and transitions. The game auto-loads every map file in
-`src/world/goodsprings/` (no more hardcoded imports), so a new building is just a new file. Interior
-files carry optional `building` / `floor` metadata as groundwork for multi-floor buildings.
+## Done — M2.5: single-map buildings
+Design change: buildings are ordinary walls + floor + a door inside the one world map (no separate
+interior spaces, no vestibule trick). Closed doors block movement and sight; bumping one opens it
+(NetHack rule), so line of sight alone gives the "step inside and the outside disappears" feel and a
+lit room shows through an open door. Named `places` (rectangles in the map JSON) drive the status-bar
+Location and "You enter/leave X." messages. Editor: Building tool (drag a rectangle, pick a door side),
+Box tool, live shape previews, game-matching cell proportions. The game auto-loads every file in
+`src/world/goodsprings/`, which is how future extra floors will appear. Separate `Space` files + the
+`transitions` machinery remain only for floors reached by stairs.
 
 ## Planned (in order) — and how each fits the current code
 
@@ -51,8 +55,9 @@ files carry optional `building` / `floor` metadata as groundwork for multi-floor
   fleeing (`cowardly`) come with it. `Factions.ts` from rogueout is the reference.
 
 ### M5 — Multi-level buildings
-- Each floor is its own `Space` (its own file; `building` + `floor` metadata already in place) at
-  the *same world coordinates*, so the camera and "seamless" rendering work unchanged.
+- The ground floor lives in the world map (see M2.5). Each *extra* floor (upstairs, basement) is its own
+  `Space` file at the *same world coordinates* (`worldOrigin` = the building footprint), so the camera
+  and "seamless" rendering work unchanged. Interior files get `building` + `floor` metadata.
 - Stairs are transitions with a `kind` (`up`/`down`) triggered deliberately with `<` / `>` (like
   NetHack and rogueout) rather than by stepping on them; they land on the matching stair tile of the
   other floor. Basements are floors with negative numbers.
@@ -67,6 +72,8 @@ monologues → save/load (spaces serialize independently, which multi-level need
 shops/trade → perks and skills → SPECIAL allocation screen.
 
 ### Smaller open items
+- **Doors:** hostile humanoids (and gun-wielding NPCs) should open closed doors on their way to you;
+  animals can't. Add `c` close and locked doors/keys. Lit vs dark rooms (a tile `indoor` flag) later.
 - **Balance:** a full-HP bare-handed player beats a lone gecko ~99.95% of the time. Consider lowering
   max HP (now 20 + 4*Endurance) or raising monster damage.
 - **AI polish:** a hunter with no path to you holds still instead of closing up behind a blocker.

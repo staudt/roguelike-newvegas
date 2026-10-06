@@ -2,7 +2,7 @@ import { DAYLIGHT_SIGHT_RADIUS, INDOOR_SIGHT_RADIUS } from '../config/constants'
 import type { Monster } from '../entities/Monster';
 import type { Npc } from '../entities/Npc';
 import type { Player } from '../entities/Player';
-import type { Point } from '../utils/geometry';
+import { rectContains, type Point, type Rect } from '../utils/geometry';
 import type { MapGrid } from '../world/GameMap';
 
 /**
@@ -25,6 +25,16 @@ export interface Transition {
  * into world space: world (wx, wy) <-> local (wx - worldOrigin.x, wy - worldOrigin.y). The
  * outdoor world itself has `worldOrigin = {0, 0}`, so the common case costs nothing.
  */
+/**
+ * A named rectangle of the map — "Prospector Saloon", "Doc Mitchell's House". Purely descriptive:
+ * it carries no walls or rules (those are ordinary tiles), it just names where you are. Smaller
+ * places nest inside larger ones and win when both contain you.
+ */
+export interface Place {
+  name: string;
+  rect: Rect;
+}
+
 export interface Space {
   id: string;
   name: string;
@@ -34,8 +44,25 @@ export interface Space {
   npcs: Npc[];
   monsters: Monster[];
   transitions: Transition[];
+  places: Place[];
   visible: Uint8Array;
   explored: Uint8Array;
+}
+
+/** The innermost named place containing a world point, if any. */
+export function placeAt(space: Space, point: Point): Place | undefined {
+  let best: Place | undefined;
+  for (const place of space.places) {
+    if (!rectContains(place.rect, point)) continue;
+    if (!best || place.rect.width * place.rect.height < best.rect.width * best.rect.height) best = place;
+  }
+  return best;
+}
+
+/** What to show as "Location": the place you're standing in, else the space's own name. */
+export function locationName(state: GameState): string {
+  const space = getActiveSpace(state);
+  return placeAt(space, state.player)?.name ?? space.name;
 }
 
 export function sightRadiusFor(space: Space): number {

@@ -203,10 +203,10 @@
     "ground",
     "ground",
     "wall",
-    "rock",
-    "rock",
-    "rock",
-    "rock",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
     "wall",
     "ground",
     "ground",
@@ -237,10 +237,10 @@
     "ground",
     "ground",
     "door",
-    "rock",
-    "rock",
-    "rock",
-    "rock",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
     "wall",
     "ground",
     "ground",
@@ -271,10 +271,10 @@
     "ground",
     "ground",
     "wall",
-    "rock",
-    "rock",
-    "rock",
-    "rock",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
     "wall",
     "ground",
     "ground",
@@ -395,10 +395,10 @@
     "ground",
     "ground",
     "wall",
-    "rock",
-    "rock",
-    "rock",
-    "rock",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
     "wall",
     "ground",
     "ground",
@@ -429,10 +429,10 @@
     "ground",
     "ground",
     "wall",
-    "rock",
-    "rock",
-    "rock",
-    "rock",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
     "door",
     "ground",
     "ground",
@@ -463,10 +463,10 @@
     "ground",
     "ground",
     "wall",
-    "rock",
-    "rock",
-    "rock",
-    "rock",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
     "wall",
     "ground",
     "ground",
@@ -1937,6 +1937,33 @@
       "dialogue": [
         "I'm just passing through, same as anybody. Though with those Powder Gangers sniffing around, \"passing through\" might take longer than I'd like."
       ]
+    },
+    {
+      "id": "trudy",
+      "name": "Trudy",
+      "x": 13,
+      "y": 12,
+      "fg": "#d98a5a",
+      "dialogue": [
+        "Don't mind the dust, just mind your caps. And if you run into Sunny, tell her the generator's acting up again.",
+        "We get all sorts passing through. Ringo's one of the quieter ones — can't say the same for some of the others."
+      ]
+    },
+    {
+      "id": "doc-mitchell",
+      "name": "Doc Mitchell",
+      "x": 26,
+      "y": 6,
+      "fg": "#8fb0c9",
+      "interactions": [
+        "talk",
+        "heal"
+      ],
+      "dialogue": [
+        "Glad to see you back on your feet. That was a nasty bit of business, getting shot in the head. Come by if the dizziness doesn't let up.",
+        "Don't push yourself. If you're hurt, I can patch you up — that's what I'm here for.",
+        "The geckos have been bold lately, and there's talk of Powder Gangers over at the prison. Keep your wits about you out there."
+      ]
     }
   ],
   "monsters": [
@@ -1971,20 +1998,29 @@
       "y": 2
     }
   ],
-  "transitions": [
-    {
-      "x": 16,
-      "y": 12,
-      "toSpace": "prospector-saloon"
-    },
-    {
-      "x": 23,
-      "y": 6,
-      "toSpace": "doc-mitchells-house"
-    }
-  ],
+  "transitions": [],
   "playerStart": {
     "x": 18,
     "y": 24
-  }
+  },
+  "places": [
+    {
+      "name": "Prospector Saloon",
+      "rect": {
+        "x": 11,
+        "y": 10,
+        "width": 6,
+        "height": 5
+      }
+    },
+    {
+      "name": "Doc Mitchell's House",
+      "rect": {
+        "x": 23,
+        "y": 4,
+        "width": 6,
+        "height": 5
+      }
+    }
+  ]
 }

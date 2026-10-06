@@ -12,7 +12,7 @@ import { getActiveSpace, worldToLocal, type GameState, type Space } from '../eng
 import { hasLineOfSight } from '../fov/LineOfSight';
 import { chebyshevDistance, DIRECTION_VECTORS, type Point } from '../utils/geometry';
 import { randomInt, type RNG } from '../utils/RNG';
-import { canStep, getTileId } from '../world/GameMap';
+import { canStep } from '../world/GameMap';
 import { nextStepToward } from './Pathfinding';
 
 const STEP_VECTORS = Object.values(DIRECTION_VECTORS);
@@ -84,7 +84,7 @@ function actAsHostile(
     space.grid,
     worldToLocal(space, here),
     worldToLocal(space, state.player),
-    (lx, ly) => isOccupiedOrDoor(state, lx, ly),
+    (lx, ly) => isOccupied(state, lx, ly),
   );
   if (!step) return;
 
@@ -101,16 +101,14 @@ function wander(state: GameState, creature: Creature, rng: RNG): void {
   const from = worldToLocal(space, creature);
   const to = { x: from.x + v.x, y: from.y + v.y };
 
-  if (!canStep(space.grid, from, to) || isOccupiedOrDoor(state, to.x, to.y)) return;
+  if (!canStep(space.grid, from, to) || isOccupied(state, to.x, to.y)) return;
   creature.x = to.x + space.worldOrigin.x;
   creature.y = to.y + space.worldOrigin.y;
 }
 
-/** Cells creatures may not path into: doors (they never change space), and anyone's feet. */
-function isOccupiedOrDoor(state: GameState, localX: number, localY: number): boolean {
+/** Cells creatures may not path into: anyone's feet. (Closed doors already fail `canStep`.) */
+function isOccupied(state: GameState, localX: number, localY: number): boolean {
   const space = getActiveSpace(state);
-  if (getTileId(space.grid, localX, localY) === 'door') return true;
-
   const wx = localX + space.worldOrigin.x;
   const wy = localY + space.worldOrigin.y;
   if (state.player.x === wx && state.player.y === wy) return true;

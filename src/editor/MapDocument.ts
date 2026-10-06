@@ -1,7 +1,8 @@
 import { MAX_GROUND_HEIGHT } from '../config/palette';
-import type { Point } from '../utils/geometry';
+import type { Point, Rect } from '../utils/geometry';
 import type { MapGrid } from '../world/GameMap';
 import type { InteractionId } from '../entities/Npc';
+import type { BuildingPatch } from '../world/buildingTemplate';
 import type { SpaceJSON } from '../world/MapLoader';
 
 /**
@@ -30,6 +31,11 @@ export interface EditableMonster {
   y: number;
 }
 
+export interface EditablePlace {
+  name: string;
+  rect: Rect;
+}
+
 export interface EditableTransition {
   x: number;
   y: number;
@@ -42,6 +48,7 @@ interface Snapshot {
   npcs: EditableNpc[];
   monsters: EditableMonster[];
   transitions: EditableTransition[];
+  places: EditablePlace[];
   playerStart: Point | undefined;
 }
 
@@ -70,6 +77,10 @@ function npcToJson(n: EditableNpc): NpcJson {
   };
 }
 
+function copyPlaces(places: readonly EditablePlace[]): EditablePlace[] {
+  return places.map((p) => ({ name: p.name, rect: { ...p.rect } }));
+}
+
 /** Matches PlanDocument's cap: deep enough to be useful, shallow enough not to accumulate forever. */
 const MAX_UNDO = 40;
 
@@ -83,6 +94,7 @@ export class MapDocument {
   npcs: EditableNpc[];
   monsters: EditableMonster[];
   transitions: EditableTransition[];
+  places: EditablePlace[];
   playerStart: Point | undefined;
   /** Optional multi-floor metadata, carried through untouched so a save never drops it. */
   building: string | undefined;
@@ -117,6 +129,7 @@ export class MapDocument {
     this.npcs = data.npcs.map(copyNpcFromJson);
     this.monsters = (data.monsters ?? []).map((m) => ({ ...m }));
     this.transitions = data.transitions.map((t) => ({ ...t }));
+    this.places = copyPlaces(data.places ?? []);
     this.playerStart = data.playerStart ? { ...data.playerStart } : undefined;
     this.building = data.building;
     this.floor = data.floor;
@@ -136,6 +149,7 @@ export class MapDocument {
       monsters: this.monsters.map((m) => ({ ...m })),
       transitions: this.transitions.map((t) => ({ ...t })),
     };
+    if (this.places.length > 0) json.places = copyPlaces(this.places);
     if (this.playerStart) json.playerStart = { ...this.playerStart };
     if (this.building !== undefined) json.building = this.building;
     if (this.floor !== undefined) json.floor = this.floor;
@@ -178,6 +192,7 @@ export class MapDocument {
       npcs: this.npcs.map(copyNpc),
       monsters: this.monsters.map((m) => ({ ...m })),
       transitions: this.transitions.map((t) => ({ ...t })),
+      places: copyPlaces(this.places),
       playerStart: this.playerStart ? { ...this.playerStart } : undefined,
     });
     if (this.undoStack.length > MAX_UNDO) this.undoStack.shift();
@@ -191,6 +206,7 @@ export class MapDocument {
     this.npcs = previous.npcs;
     this.monsters = previous.monsters;
     this.transitions = previous.transitions;
+    this.places = previous.places;
     this.playerStart = previous.playerStart;
     return true;
   }
@@ -250,19 +266,16 @@ export class MapDocument {
   }
 
   /**
-   * Applies a building's outdoor patch (tiles + door transition, in WORLD coordinates) as ONE undo
-   * step. Heights under the patch are reset to 0 so the footprint is flat.
+   * Applies a building's patch (footprint tiles + named place, in world coordinates) as ONE undo
+   * step. Heights under the footprint are reset to 0 so it is flat.
    */
-  applyBuildingPatch(patch: {
-    tiles: Array<{ x: number; y: number; id: string }>;
-    transition: EditableTransition;
-  }): void {
+  applyBuildingPatch(patch: BuildingPatch): void {
     this.beginStroke();
     for (const t of patch.tiles) {
       this.paintTile(t.x, t.y, t.id);
       this.setHeight(t.x, t.y, 0);
     }
-    this.addTransition(patch.transition.x, patch.transition.y, patch.transition.toSpace);
+    this.places.push({ name: patch.place.name, rect: { ...patch.place.rect } });
   }
 
   /** Flood fill, 4-connected. */
@@ -353,6 +366,25 @@ export class MapDocument {
     this.monsters = this.monsters.filter((m) => m !== monster);
   }
 
+  // --- places ------------------------------------------------------------------------------------
+
+  /** Adds a named rectangle (undoable). */
+  addPlace(name: string, rect: Rect): EditablePlace {
+    this.beginStroke();
+    const place: EditablePlace = { name, rect: { ...rect } };
+    this.places.push(place);
+    return place;
+  }
+
+  renamePlace(place: EditablePlace, name: string): void {
+    place.name = name;
+  }
+
+  removePlace(place: EditablePlace): void {
+    this.beginStroke();
+    this.places = this.places.filter((p) => p !== place);
+  }
+
   // --- transitions ----------------------------------------------------------------------------
 
   transitionAt(x: number, y: number): EditableTransition | undefined {
@@ -378,3 +410,4 @@ export class MapDocument {
     this.transitions = this.transitions.filter((t) => t !== transition);
   }
 }
+

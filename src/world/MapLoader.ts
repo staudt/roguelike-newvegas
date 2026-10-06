@@ -1,7 +1,7 @@
-import type { Space } from '../engine/GameState';
+import type { Place, Space } from '../engine/GameState';
 import { createMonster } from '../entities/Monster';
 import { createNpc, type InteractionId, type Npc } from '../entities/Npc';
-import type { Point } from '../utils/geometry';
+import type { Point, Rect } from '../utils/geometry';
 import type { MapGrid } from './GameMap';
 
 /**
@@ -34,6 +34,8 @@ export interface SpaceJSON {
   /** Creatures placed from the monster table. Omitted means none. */
   monsters?: Array<{ defId: string; x: number; y: number }>;
   transitions: Array<{ x: number; y: number; toSpace: string }>;
+  /** Named rectangles (buildings, districts) shown as the Location. Omitted means none. */
+  places?: Array<{ name: string; rect: Rect }>;
   /** Where the player starts out. Only meaningful on the space the game boots into ('world'). */
   playerStart?: Point;
   /** Groundwork for multi-floor buildings: which building this interior belongs to. Ignored by the loader for now. */
@@ -74,6 +76,7 @@ export function loadSpace(data: SpaceJSON): Space {
     npcs,
     monsters,
     transitions: data.transitions.map((t) => ({ ...t })),
+    places: (data.places ?? []).map((pl): Place => ({ name: pl.name, rect: { ...pl.rect } })),
     visible: new Uint8Array(expected),
     explored: new Uint8Array(expected),
   };
@@ -101,5 +104,6 @@ export function serializeSpace(space: Space): SpaceJSON {
     })),
     monsters: space.monsters.map((m) => ({ defId: m.defId, x: m.x, y: m.y })),
     transitions: space.transitions.map((t) => ({ ...t })),
+    places: space.places.map((pl) => ({ name: pl.name, rect: { ...pl.rect } })),
   };
 }
