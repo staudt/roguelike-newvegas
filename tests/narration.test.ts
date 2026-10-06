@@ -217,7 +217,8 @@ describe('attack messages in the log (engine level)', () => {
     const sunny = createNpc('sunny', 'Sunny Smiles', 1, 0, ['hi']);
     const { state } = buildArena({ width: 3, height: 1, player: { x: 0, y: 0 }, npcs: [sunny] });
     playerAttacks(state, sunny, scriptedRNG([0.999]));
-    expect(state.messageLog).toEqual(['You miss Sunny Smiles with your bare hands.']);
+    // Even a miss alarms a peaceful person: the scream is out of sight here, so it is only heard.
+    expect(state.messageLog).toEqual(['You miss Sunny Smiles with your bare hands.', 'You hear a scream.']);
   });
 
   it('a death blow on a gecko logs "The gecko dies!" and the final line is the death', () => {

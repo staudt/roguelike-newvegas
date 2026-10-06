@@ -62,7 +62,9 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
   editor palette, `TILE_ORDER` (append only). Gunshots use the same line of sight.
 - **Gun stats** (`effectiveRange`, bonuses): aim bands (`AIM_ZONES`), crowding penalty, creature gun AI
   (`actWithGun` lines up shots using `range`), tests in `gun-accuracy`/`shooting`.
-- **Hostility** (`hostile` flag; factions planned in M4): crowding penalty counts adjacent hostiles,
+- **Hostility** (`hostile` flag; factions planned in M4): any blow, bullet or kick on a creature goes
+  through `provoke` (`engine/Sound.ts`), never set `hostile` directly; noises go through `emitSound`.
+  Crowding penalty counts adjacent hostiles,
   noise alerts hostiles, kick/attack provoke, the red hostile ring, menus asking before attacking peacefuls.
 - **Wielded/alternate/readied**: `wieldItem`, `swapWeapons`, drop (`clearSlotsFor`), loadouts, inventory
   tags, command menu context, status bar.
@@ -76,5 +78,6 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
 - Known gaps: creatures knocked into each other do not fight each other (AI only targets the player);
   "attacks affect aim" is not modelled; the kick asks no confirmation on peacefuls; no ghoul placed in the
   world map yet; SPECIAL is fixed.
-- Next planned: M4 factions/temperament (would also enable creature infighting), M5 multi-level buildings,
+- M4 step 1 done: sound (`emitSound`), `provoke`, investigate and witness AI (see `ROADMAP.md`).
+- Next planned: M4 steps 2–4 (factions and temperament data, reputation, creature infighting), M5 multi-level buildings,
   then VATS, quests, save/load.

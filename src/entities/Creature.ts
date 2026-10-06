@@ -1,5 +1,6 @@
 import type { AttackProfile, Combatant } from '../combat/Combatant';
 import type { Carrier } from '../items/Loadout';
+import type { Point } from '../utils/geometry';
 import type { Monster } from './Monster';
 import type { Npc } from './Npc';
 
@@ -13,6 +14,13 @@ export interface CreatureStats extends Combatant, Carrier {
   awareness: number;
   /** Once it has noticed you it keeps hunting, even round a corner. */
   alerted: boolean;
+  /**
+   * Was peaceful and has been drawn into the fight (attacked, or saw a provoked neighbour). Unlike a
+   * creature that is hostile by nature, a provoked one makes witnesses turn on the player too.
+   */
+  provoked: boolean;
+  /** A noise to go and check out: a peaceful heard trouble and walks there to see. */
+  investigate: Point | null;
   /** Natural weapon (teeth, fists): used when nothing is wielded. */
   attack: AttackProfile;
 }

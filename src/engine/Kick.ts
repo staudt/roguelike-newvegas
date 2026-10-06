@@ -10,6 +10,7 @@ import { tileIsGround } from '../world/Tile';
 import { partyFor, removeCreature, YOU } from './Combat';
 import type { EventBus, GameEvents } from './EventBus';
 import { addMessage, getActiveSpace, type GameState } from './GameState';
+import { provoke } from './Sound';
 import { advanceTurn } from './TurnManager';
 
 /** A kick: about a punch's damage, but it shoves. Leans on the torso and legs. */
@@ -55,13 +56,10 @@ const MAX_SLIDE = 12;
 
 function hurtByFlight(state: GameState, c: Creature, rng: RNG): void {
   bruise(c, rng);
-  if (c.hp <= 0) {
-    addMessage(state, `${capitalize(theName(c))} dies!`);
-    removeCreature(state, c, rng);
-  } else {
-    c.hostile = true;
-    c.alerted = true;
-  }
+  const dead = c.hp <= 0;
+  if (dead) addMessage(state, `${capitalize(theName(c))} dies!`);
+  provoke(state, c, dead);
+  if (dead) removeCreature(state, c, rng);
 }
 
 /**
@@ -140,11 +138,10 @@ export function kickDirection(
     addMessage(state, line);
   }
 
+  provoke(state, target, result.killed);
   if (result.killed) {
     removeCreature(state, target, rng);
   } else {
-    target.hostile = true;
-    target.alerted = true;
     if (result.hit) {
       const distance = knockbackDistance(rng, state.player, target);
       if (distance > 0) knockBack(state, target, step, distance, rng);

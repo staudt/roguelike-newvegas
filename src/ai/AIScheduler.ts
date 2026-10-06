@@ -63,6 +63,8 @@ export function runCreatureTurns(state: GameState, rng: RNG, events: EventBus<Ga
         actAsHostile(state, creature, rng, events, occupancy);
       } else if (creature.kind === 'monster') {
         wander(state, creature, rng, occupancy);
+      } else if (!joinsTrouble(state, creature) && creature.investigate) {
+        investigateNoise(state, creature, occupancy);
       }
     }
 
@@ -81,6 +83,48 @@ function moveTo(occupancy: Occupancy, creature: Creature, x: number, y: number):
 /** Cells creatures may not path into: anyone's feet. (Closed doors already fail `canStep`.) */
 function isOccupied(state: GameState, occupancy: Occupancy, x: number, y: number): boolean {
   return (state.player.x === x && state.player.y === y) || occupancy.has(cellKey(x, y));
+}
+
+/**
+ * A peaceful person who can see a provoked neighbour fighting the player turns on the player too.
+ * Only provoked people count: a gecko that was always hostile says nothing about whose side anyone
+ * is on. Returns whether they joined in (which takes their action).
+ */
+function joinsTrouble(state: GameState, npc: Creature): boolean {
+  const space = getActiveSpace(state);
+  const sees = space.npcs.some(
+    (other) =>
+      other !== npc &&
+      other.hostile &&
+      other.provoked &&
+      chebyshevDistance(npc, other) <= npc.awareness &&
+      hasLineOfSight(space.grid, npc, other),
+  );
+  if (!sees) return false;
+
+  npc.hostile = true;
+  npc.provoked = true;
+  npc.alerted = true;
+  npc.investigate = null;
+  if (canSee(state, npc)) addMessage(state, `${capitalize(theName(npc))} joins the fight!`);
+  return true;
+}
+
+/** Walks toward a noise and stops next to where it came from; gives up if there is no way there. */
+function investigateNoise(state: GameState, npc: Creature, occupancy: Occupancy): void {
+  const goal = npc.investigate!;
+  if (chebyshevDistance(npc, goal) <= 1) {
+    npc.investigate = null;
+    return;
+  }
+  const step = nextStepToward(getActiveSpace(state).grid, npc, goal, (x, y) =>
+    isOccupied(state, occupancy, x, y),
+  );
+  if (!step) {
+    npc.investigate = null;
+    return;
+  }
+  moveTo(occupancy, npc, step.x, step.y);
 }
 
 function actAsHostile(

@@ -54,7 +54,33 @@ shots at range 2+, for the player ("You are too hemmed in to aim.") and for crea
 `k` kick (torso only, knocks back by Strength vs mass; uphill costs extra, downhill tumbles), `x` alternate weapon,
 the ghoul, a two-line status bar and a more forgiving height-aware line of sight. VATS would build on the bands later.
 
-### M4 — Alignment, factions, temperament
+### M4 — Sound, alignment, factions, temperament
+Design decisions (agreed with the user):
+- **Goodsprings is not a faction.** Townsfolk are individuals: peaceful, avoid conflict, fight back if hurt,
+  call for help, and neighbours who hear come to look and join once they *see* a provoked neighbour
+  fighting. Such conflicts stay local. Per-NPC temperament decides fight vs flee (Doc Mitchell fights and
+  flees while calling for help; Sunny Smiles is a warrior who goes for you, still calling for help).
+- **Factions are for real factions** (NCR, Legion, Powder Gangers, wildlife…): a relations table, some pairs
+  in instant conflict (NCR vs Legion), hostile monsters hostile to any human. Reputation is per faction:
+  killing a *leader* (`important` flag in data) hurts it a lot; killing rank and file only draws nearby
+  members. At the threshold the whole faction is hostile on sight, for the rest of the run, until a
+  recovery route exists (quests, later). No per-location reputation.
+- **Everything happens near the player.** Only the simulated window acts (`SIM_RADIUS`), so NPC-vs-NPC
+  fights and sound never run far away.
+- Sound: screams, shouts (calls for help or to arms) and gunshots draw creatures in range; gunshots
+  especially draw hunters (non-territorial), not territorial creatures.
+
+Order: (1) sound + investigate + provoke/witness — **done**; (2) factions, relations, temperament data
+(`hostile` becomes derived: faction relation, temperament, `provoked`); (3) reputation, leaders, hostile
+on sight; (4) creatures fighting each other (targets other than the player).
+
+Step 1 as built: `engine/Sound.ts` (`emitSound`, `provoke`), `provoked` / `investigate` on creatures,
+`SCREAM_NOISE_RADIUS` / `SHOUT_NOISE_RADIUS`, AI `joinsTrouble` and `investigateNoise`. Every blow, bullet
+and kick on a creature goes through `provoke`. Known gaps: nobody *shouts* yet (only the first scream),
+a witness of an outright killing learns nothing unless they see a provoked neighbour, no fleeing yet
+(needs temperament), gunshots only alert hostiles.
+
+Original sketch (to reconcile with the above):
 - Replace the single `hostile` boolean with: `faction` (Goodsprings, Powder Gangers, NCR, wildlife…),
   a faction relations table, per-faction reputation for the player, and a monster/NPC
   `temperament` (`aggressive` | `territorial` | `peaceful` | `cowardly`). `hostile` stays as the

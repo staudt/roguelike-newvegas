@@ -1,7 +1,6 @@
 import { resolveMelee, resolveShot } from '../combat/CombatResolver';
 import type { AttackProfile } from '../combat/Combatant';
 import { narrateAttack, narrateShot, capitalize, type Party } from '../combat/Narration';
-import { GUN_NOISE_RADIUS } from '../config/constants';
 import { creatureAt, theName, type Creature } from '../entities/Creature';
 import type { Player } from '../entities/Player';
 import { hasLineOfSight } from '../fov/LineOfSight';
@@ -14,6 +13,7 @@ import { isOpaque } from '../world/GameMap';
 import type { EventBus, GameEvents } from './EventBus';
 import { addMessage, getActiveSpace, type GameState } from './GameState';
 import { dropCreatureItems } from './GroundItems';
+import { emitSound, provoke } from './Sound';
 
 export const YOU: Party = { name: 'you', isPlayer: true, possessive: 'your' };
 
@@ -56,12 +56,8 @@ export function playerAttacks(
     addMessage(state, line);
   }
 
-  if (result.killed) {
-    removeCreature(state, target, rng);
-    return;
-  }
-  target.hostile = true;
-  target.alerted = true;
+  provoke(state, target, result.killed);
+  if (result.killed) removeCreature(state, target, rng);
 }
 
 function killPlayer(state: GameState, events: EventBus<GameEvents>): void {
@@ -103,16 +99,6 @@ export function shotPath(state: GameState, origin: Point, step: Point, range: nu
   return path;
 }
 
-/** A gunshot is loud: every hostile within GUN_NOISE_RADIUS knows where the trouble is. */
-export function alertNearbyHostiles(state: GameState, at: Point): void {
-  const space = getActiveSpace(state);
-  for (const list of [space.monsters, space.npcs] as Creature[][]) {
-    for (const c of list) {
-      if (c.hostile && chebyshevDistance(c, at) <= GUN_NOISE_RADIUS) c.alerted = true;
-    }
-  }
-}
-
 /**
  * Hostiles right next to the shooter, which spoil aim at range: for the player, every adjacent
  * hostile creature; for a creature, the player when they are in its face.
@@ -151,7 +137,7 @@ export function fireProjectile(
   const isPlayer = shooter.kind === 'player';
   const party = isPlayer ? YOU : partyFor(shooter as Creature);
 
-  alertNearbyHostiles(state, shooter);
+  emitSound(state, shooter, 'gunshot', shooter);
   const crowd = adjacentHostiles(state, shooter);
 
   const flight = shotPath(state, shooter, step, gun.range);
@@ -175,12 +161,8 @@ export function fireProjectile(
       }
       const result = resolveShot(rng, state.player, target, gun.shot, i + 1, crowd);
       for (const line of narrateShot(party, partyFor(target), gun.name, result)) addMessage(state, line);
-      if (result.killed) {
-        removeCreature(state, target, rng);
-      } else {
-        target.hostile = true;
-        target.alerted = true;
-      }
+      provoke(state, target, result.killed);
+      if (result.killed) removeCreature(state, target, rng);
       if (result.hit) hitId = target.id;
     } else if (cell.x === state.player.x && cell.y === state.player.y) {
       rolled++;
