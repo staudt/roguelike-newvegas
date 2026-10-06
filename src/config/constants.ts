@@ -66,8 +66,13 @@ export const LOSE_TRACK_FACTOR = 2.5;
  */
 export const SIM_RADIUS = 40;
 
-/** Each cell a shot travels beyond the first costs this many percentage points of to-hit. */
-export const RANGE_PENALTY_PER_CELL = 3;
+/** Gun to-hit modifier (percentage points) by target size. Melee ignores it. */
+export const SIZE_TO_HIT_MODIFIER = { tiny: -20, small: -8, medium: 0, large: 8 } as const;
+
+/** Targets faster than this are harder to shoot... */
+export const EVASION_SPEED_THRESHOLD = 12;
+/** ...by this many points per point of speed above the threshold. */
+export const EVASION_PER_SPEED = 0.5;
 
 /** A gunshot alerts every hostile creature within this many cells (Chebyshev) of the shooter. */
 export const GUN_NOISE_RADIUS = 14;

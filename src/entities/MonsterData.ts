@@ -1,4 +1,4 @@
-import type { AttackProfile } from '../combat/Combatant';
+import type { AttackProfile, CreatureSize } from '../combat/Combatant';
 import type { BodyPlanId } from '../combat/Limbs';
 
 export interface MonsterDef {
@@ -12,6 +12,8 @@ export interface MonsterDef {
   strength: number;
   /** 12 is normal; the fast and the slow are the point of the speed system. */
   speed: number;
+  /** Gun to-hit size class; default medium. */
+  size?: CreatureSize;
   bodyPlan: BodyPlanId;
   attack: AttackProfile;
   awareness: number;
@@ -35,6 +37,7 @@ export interface LootEntry {
 export const MONSTERS: Record<string, MonsterDef> = {
   gecko: {
     id: 'gecko',
+    size: 'small',
     name: 'gecko',
     glyph: 'g',
     fg: '#7fbf5f',
@@ -57,6 +60,7 @@ export const MONSTERS: Record<string, MonsterDef> = {
   },
   bloatfly: {
     id: 'bloatfly',
+    size: 'tiny',
     name: 'bloatfly',
     glyph: 'a',
     fg: '#c9b84a',
@@ -79,6 +83,7 @@ export const MONSTERS: Record<string, MonsterDef> = {
   },
   radroach: {
     id: 'radroach',
+    size: 'small',
     name: 'radroach',
     glyph: 'r',
     fg: '#a0724a',
@@ -101,6 +106,7 @@ export const MONSTERS: Record<string, MonsterDef> = {
   },
   brahmin: {
     id: 'brahmin',
+    size: 'large',
     name: 'brahmin',
     glyph: 'q',
     fg: '#d8b88a',

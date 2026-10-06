@@ -23,6 +23,9 @@ export interface AttackProfile {
   strengthBonus: boolean;
 }
 
+/** How hard a body is to hit with a gun. Absent means medium. */
+export type CreatureSize = 'tiny' | 'small' | 'medium' | 'large';
+
 /** Shared by the player, NPCs and monsters — anything that can be hit and can hit back. */
 export interface Combatant {
   hp: number;
@@ -37,4 +40,6 @@ export interface Combatant {
   /** Banked movement; spending NORMAL_SPEED buys one action. */
   energy: number;
   limbs: Limb[];
+  /** Body size; modifies gun to-hit only. Absent means medium. */
+  size?: CreatureSize;
 }

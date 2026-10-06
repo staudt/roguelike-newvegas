@@ -1,6 +1,5 @@
-import { RANGE_PENALTY_PER_CELL } from '../config/constants';
 import type { ShotProfile } from '../items/ItemData';
-import { computeToHit, strengthDamageBonus } from './CombatFormulas';
+import { aimSpread, computeToHit, rangeAccuracyBonus, strengthDamageBonus, targetEvasion } from './CombatFormulas';
 import type { AttackProfile, Combatant } from './Combatant';
 import { limbAccuracyPenalty, limbCondition, type Limb, type LimbCondition } from './Limbs';
 import { pickWeighted, randomInt, type RNG } from '../utils/RNG';
@@ -77,8 +76,9 @@ export function resolveMelee(
 
 /**
  * One bullet at a target `distanceCells` away (1 = adjacent). Aim is Perception (Agility for
- * creatures without one); every cell beyond the first costs RANGE_PENALTY_PER_CELL. No Strength
- * bonus; heads hurt more, as in melee. Mutates `target`.
+ * creatures without one). Range, target size and speed shift the chance (see ShotAccuracy); far
+ * shots also concentrate on the torso. No Strength bonus; heads hurt more, as in melee. Mutates
+ * `target`.
  */
 export function resolveShot(
   rng: RNG,
@@ -89,7 +89,7 @@ export function resolveShot(
 ): AttackResult {
   const chance = computeToHit(
     shooter.perception ?? shooter.agility,
-    shot.accuracyBonus - RANGE_PENALTY_PER_CELL * Math.max(0, distanceCells - 1),
+    shot.accuracyBonus + rangeAccuracyBonus(shot.accuracy, distanceCells) + targetEvasion(target),
     limbAccuracyPenalty(shooter.limbs),
     target.ac,
   );
@@ -98,7 +98,11 @@ export function resolveShot(
     return { hit: false, damage: 0, limb: null, limbBefore: null, limbAfter: null, killed: false };
   }
 
-  const limb = pickLimb(rng, target, shot);
+  const spread = aimSpread(shot.accuracy, distanceCells);
+  const p = shot.hitProfile;
+  const limb = pickLimb(rng, target, {
+    hitProfile: { head: p.head * spread, torso: p.torso, arm: p.arm * spread, leg: p.leg * spread },
+  });
   let damage = randomInt(rng, shot.damage.min, shot.damage.max);
   if (limb.kind === 'head') damage = Math.round(damage * HEAD_DAMAGE_MULTIPLIER);
   damage = Math.max(1, damage);

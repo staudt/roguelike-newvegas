@@ -33,8 +33,24 @@ export interface WeaponDef extends ItemDefBase {
 }
 
 /** What one shot from a gun does, before the target's armor and the range penalty. */
+export interface ShotAccuracy {
+  /** Out to this many cells the range bonus is `closeBonus` (hard to miss). */
+  closeRange: number;
+  closeBonus: number;
+  /** The gun's good range: the bonus slides linearly from closeBonus to effectiveBonus here. */
+  effectiveRange: number;
+  effectiveBonus: number;
+  /** Beyond effectiveRange the bonus drops by this many points per cell (can go negative). */
+  falloffPerCell: number;
+  /** Beyond closeRange the non-torso hit weights shrink by this fraction per cell... */
+  aimFalloffPerCell: number;
+  /** ...but never below this fraction of the gun's hit profile. */
+  aimFloor: number;
+}
+
 export interface ShotProfile {
   damage: DamageRange;
+  accuracy: ShotAccuracy;
   accuracyBonus: number;
   /** Guns aim for the middle of a person; some weapons spread wider. */
   hitProfile: HitProfile;
@@ -109,6 +125,15 @@ export const ITEMS: Record<string, ItemDef> = {
     shot: {
       damage: { min: 4, max: 9 },
       accuracyBonus: 5,
+      accuracy: {
+        closeRange: 4,
+        closeBonus: 35,
+        effectiveRange: 6,
+        effectiveBonus: 15,
+        falloffPerCell: 8,
+        aimFalloffPerCell: 0.15,
+        aimFloor: 0.4,
+      },
       hitProfile: { head: 12, torso: 50, arm: 19, leg: 19 },
     },
     butt: {

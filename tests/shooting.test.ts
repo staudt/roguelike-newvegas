@@ -3,7 +3,7 @@ import { computeToHit } from '../src/combat/CombatFormulas';
 import type { Combatant } from '../src/combat/Combatant';
 import { resolveShot } from '../src/combat/CombatResolver';
 import { createLimbs } from '../src/combat/Limbs';
-import { RANGE_PENALTY_PER_CELL, GUN_NOISE_RADIUS } from '../src/config/constants';
+import { GUN_NOISE_RADIUS } from '../src/config/constants';
 import type { GameEvents } from '../src/engine/EventBus';
 import { fireGun, readyAmmo } from '../src/engine/Items';
 import { wieldItem } from '../src/engine/TurnManager';
@@ -115,15 +115,17 @@ describe('resolveShot', () => {
       ...overrides,
     };
   }
-  const shot = { damage: { min: 10, max: 10 }, accuracyBonus: 0, hitProfile: { head: 0, torso: 1, arm: 0, leg: 0 } };
+  // A flat gun: no range bonus at all up close, a plain 3 points per cell past 6.
+  const accuracy = { closeRange: 4, closeBonus: 0, effectiveRange: 6, effectiveBonus: 0, falloffPerCell: 3, aimFalloffPerCell: 0.15, aimFloor: 0.4 };
+  const shot = { damage: { min: 10, max: 10 }, accuracyBonus: 0, accuracy, hitProfile: { head: 0, torso: 1, arm: 0, leg: 0 } };
 
-  it('range penalty: each cell beyond the first costs RANGE_PENALTY_PER_CELL', () => {
-    // agility 5, bonus 0, ac 5 -> 50 - 10 = 40% adjacent. Roll d100 = 40 hits, 41 misses.
+  it('range falloff: past the effective range the chance drops falloffPerCell per cell', () => {
+    // agility 5, bonus 0, ac 5 -> 50 - 10 = 40% out to the effective range. Roll d100 = 40 hits, 41 misses.
     expect(resolveShot(scriptedRNG([0.39, 0, 0]), who(), who(), shot, 1).hit).toBe(true);
     expect(resolveShot(scriptedRNG([0.4]), who(), who(), shot, 1).hit).toBe(false);
-    const at4 = 40 - RANGE_PENALTY_PER_CELL * 3;
-    expect(resolveShot(scriptedRNG([(at4 - 1) / 100, 0, 0]), who(), who(), shot, 4).hit).toBe(true);
-    expect(resolveShot(scriptedRNG([at4 / 100]), who(), who(), shot, 4).hit).toBe(false);
+    const at9 = 40 - 3 * 3;
+    expect(resolveShot(scriptedRNG([(at9 - 1) / 100, 0, 0]), who(), who(), shot, 9).hit).toBe(true);
+    expect(resolveShot(scriptedRNG([at9 / 100]), who(), who(), shot, 9).hit).toBe(false);
   });
 
   it('the to-hit chance clamps at 5%', () => {
@@ -246,9 +248,9 @@ describe('fireGun', () => {
   });
 
   it('distance lowers the chance to hit', () => {
-    // gecko ac 4, perception 6, pistol +5: 52% adjacent, 52-3*5 = 37% at distance 6.
-    const gecko = monsterAt('g', 6, 0);
-    const a = armed({ width: 10, height: 1, player: { x: 0, y: 0 }, monsters: [gecko] });
+    // gecko ac 4, small (-8), perception 6, pistol +5: 79% adjacent, 59% at distance 6, 35% at 9.
+    const gecko = monsterAt('g', 9, 0);
+    const a = armed({ width: 12, height: 1, player: { x: 0, y: 0 }, monsters: [gecko] });
     fireGun(a.state, 'E', a.events, scriptedRNG([0.4]));
     expect(a.state.messageLog[0]).toBe('You miss the gecko with your 9mm pistol.');
     const gecko2 = monsterAt('g', 1, 0);
