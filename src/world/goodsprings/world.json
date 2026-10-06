@@ -26,7 +26,15 @@
       "fg": "#c97b5a",
       "dialogue": [
         "I'm just passing through, same as anybody. Though with those Powder Gangers sniffing around, \"passing through\" might take longer than I'd like."
-      ]
+      ],
+      "inventory": [
+        "9mm-pistol",
+        {
+          "defId": "9mm-round",
+          "count": 8
+        }
+      ],
+      "ready": "9mm-round"
     },
     {
       "id": "trudy",
@@ -53,6 +61,11 @@
         "Glad to see you back on your feet. That was a nasty bit of business, getting shot in the head. Come by if the dizziness doesn't let up.",
         "Don't push yourself. If you're hurt, I can patch you up — that's what I'm here for.",
         "The geckos have been bold lately, and there's talk of Powder Gangers over at the prison. Keep your wits about you out there."
+      ],
+      "inventory": [
+        "stimpak",
+        "stimpak",
+        "stimpak"
       ]
     }
   ],
@@ -107,6 +120,29 @@
         "width": 6,
         "height": 5
       }
+    }
+  ],
+  "items": [
+    {
+      "defId": "stimpak",
+      "x": 18,
+      "y": 22
+    },
+    {
+      "defId": "9mm-round",
+      "x": 19,
+      "y": 22,
+      "count": 12
+    },
+    {
+      "defId": "9mm-pistol",
+      "x": 12,
+      "y": 11
+    },
+    {
+      "defId": "stimpak",
+      "x": 14,
+      "y": 13
     }
   ]
 }

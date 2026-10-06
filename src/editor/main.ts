@@ -20,9 +20,12 @@ import {
 } from '../world/buildingTemplate';
 import { INTERACTION_LABELS, type InteractionId } from '../entities/Npc';
 import { MONSTERS } from '../entities/MonsterData';
+import { ITEMS, type ItemDef } from '../items/ItemData';
 import {
   FILL_CAP,
   MapDocument,
+  type EditableGroundItem,
+  type EditableLoadout,
   type EditableMonster,
   type EditableNpc,
   type EditablePlace,
@@ -61,7 +64,7 @@ interface SpaceEntry {
 const DEFAULT_CELL = 22;
 const ZOOM_STEPS = [2, 4, 6, 10, 14, 18, 22, 28, 36];
 
-type Mode = 'tile' | 'height' | 'npc' | 'monster' | 'transition';
+type Mode = 'tile' | 'height' | 'npc' | 'monster' | 'item' | 'transition';
 type TileTool = 'pencil' | 'line' | 'rect' | 'box' | 'building' | 'fill' | 'pick';
 type HeightTool = 'raise' | 'lower' | 'set';
 
@@ -193,6 +196,10 @@ async function boot(): Promise<void> {
   let selectedTransition: EditableTransition | null = null;
   let selectedMonster: EditableMonster | null = null;
   let brushMonster: string = Object.keys(MONSTERS)[0]!;
+  let selectedItem: EditableGroundItem | null = null;
+  let brushItem: string = Object.keys(ITEMS)[0]!;
+  /** Stack size for newly placed / carried ammo. */
+  let brushCount = 12;
 
   let painting = false;
   let anchor: Point | null = null;
@@ -244,6 +251,7 @@ async function boot(): Promise<void> {
       selectedNpcId = null;
       selectedTransition = null;
       selectedMonster = null;
+      selectedItem = null;
       loadError.textContent = '';
       loadError.className = '';
       saveButton.textContent = 'Save';
@@ -448,6 +456,7 @@ async function boot(): Promise<void> {
     for (const transition of doc.transitions) {
       drawMarker(transition.x, transition.y, '>', PALETTE.interactableFg, transition === selectedTransition);
     }
+    drawItems();
     for (const monster of doc.monsters) {
       const def = MONSTERS[monster.defId];
       drawMarker(monster.x, monster.y, def?.glyph ?? '?', def?.fg ?? PALETTE.hostileRing, monster === selectedMonster);
@@ -638,6 +647,32 @@ async function boot(): Promise<void> {
     ctx.lineWidth = 2;
     ctx.strokeRect(sx(rect.x) + 1, sy(rect.y) + 1, rect.w * cellW - 2, rect.h * cell - 2);
     ctx.restore();
+  }
+
+  /** Ground items: the top item of each cell, with a small "+" badge when more are stacked there. */
+  function drawItems(): void {
+    if (!doc) return;
+    const byCell = new Map<string, EditableGroundItem[]>();
+    for (const item of doc.items) {
+      const key = `${item.x},${item.y}`;
+      const list = byCell.get(key);
+      if (list) list.push(item);
+      else byCell.set(key, [item]);
+    }
+    for (const list of byCell.values()) {
+      const top = list[list.length - 1]!;
+      const def: ItemDef | undefined = ITEMS[top.defId];
+      drawMarker(top.x, top.y, def?.glyph ?? '?', def?.fg ?? PALETTE.hostileRing, selectedItem !== null && list.includes(selectedItem));
+      if (list.length > 1 && cell >= 10) {
+        ctx.save();
+        ctx.fillStyle = PALETTE.uiAmber;
+        ctx.font = `bold ${Math.max(8, Math.round(cell * 0.45))}px ${FONT_FAMILY}`;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'top';
+        ctx.fillText('+', sx(top.x) + cellW - 1, sy(top.y) + 1);
+        ctx.restore();
+      }
+    }
   }
 
   /** Thin red ring marking a hostile monster (the selection box is a square, so the two read differently). */
@@ -934,6 +969,40 @@ async function boot(): Promise<void> {
     markDirty();
   }
 
+  // --- input: item mode ----------------------------------------------------------------
+
+  /** Plain click selects the top item on the cell (or places the brush item on an empty one); Shift-click always places. */
+  function handleItemMouseDown(at: Point, shift: boolean): void {
+    if (!doc) return;
+    doc.beginStroke();
+    const here = doc.itemsAt(at.x, at.y);
+    if (here.length > 0 && !shift) {
+      selectedItem = here[here.length - 1]!;
+    } else {
+      selectedItem = doc.addItem(brushItem, at.x, at.y, newItemCount(brushItem));
+      markDirty();
+    }
+    painting = true;
+    anchor = at;
+    refreshInspector();
+    redraw();
+  }
+
+  function handleItemMouseMove(at: Point): void {
+    if (!doc || !painting || !selectedItem || !anchor) return;
+    if (at.x === anchor.x && at.y === anchor.y) return;
+    doc.moveItem(selectedItem, at.x, at.y);
+    anchor = at;
+    refreshInspector();
+    redraw();
+    markDirty();
+  }
+
+  /** Ammo gets the Count field's value; everything else is a single item with no count key. */
+  function newItemCount(defId: string): number | undefined {
+    return ITEMS[defId]?.kind === 'ammo' ? brushCount : undefined;
+  }
+
   // --- input: transition mode ------------------------------------------------------------------
 
   function handleTransitionMouseDown(at: Point): void {
@@ -985,6 +1054,7 @@ async function boot(): Promise<void> {
     if (!doc.map.has(at.x, at.y)) return;
     if (mode === 'npc') handleNpcMouseDown(at);
     if (mode === 'monster') handleMonsterMouseDown(at);
+    if (mode === 'item') handleItemMouseDown(at, event.shiftKey);
     if (mode === 'transition') handleTransitionMouseDown(at);
   });
 
@@ -1002,6 +1072,7 @@ async function boot(): Promise<void> {
     if (!doc.map.has(at.x, at.y)) return;
     if (mode === 'npc') handleNpcMouseMove(at);
     if (mode === 'monster') handleMonsterMouseMove(at);
+    if (mode === 'item') handleItemMouseMove(at);
     if (mode === 'transition') handleTransitionMouseMove(at);
   });
 
@@ -1056,6 +1127,7 @@ async function boot(): Promise<void> {
     selectedPlace = null;
     buildingRect = null;
     selectedMonster = null;
+    selectedItem = null;
     selectedTransition = null;
     refreshPalette();
     refreshInspector();
@@ -1124,6 +1196,14 @@ async function boot(): Promise<void> {
         doc?.beginStroke();
         doc?.removeMonster(selectedMonster);
         selectedMonster = null;
+        refreshInspector();
+        redraw();
+        markDirty();
+      }
+      if (mode === 'item' && selectedItem) {
+        doc?.beginStroke();
+        doc?.removeItem(selectedItem);
+        selectedItem = null;
         refreshInspector();
         redraw();
         markDirty();
@@ -1259,6 +1339,7 @@ async function boot(): Promise<void> {
     if (mode === 'height') paletteEl.append(buildHeightPalette());
     if (mode === 'npc') paletteEl.append(buildHint('Click an empty cell to place an NPC. Drag an existing marker to move it. Edit it in the panel on the right. Delete/Backspace removes the selected NPC.'));
     if (mode === 'monster') paletteEl.append(buildMonsterPalette());
+    if (mode === 'item') paletteEl.append(buildItemPalette());
     if (mode === 'transition') paletteEl.append(buildHint('Click an empty cell to place a transition. Drag an existing marker to move it. Set its destination space in the panel on the right. Delete/Backspace removes the selected transition.'));
   }
 
@@ -1418,6 +1499,50 @@ async function boot(): Promise<void> {
     return wrap;
   }
 
+  function itemLabel(def: ItemDef): string {
+    return `${def.name} (${def.kind})`;
+  }
+
+  function buildItemPalette(): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.append(
+      buildHint(
+        'Pick an item, then click an empty cell to drop one. Click a cell with items to select the top one, drag to move it, Delete/Backspace removes it. Shift+click adds another to an occupied cell.',
+      ),
+    );
+    const count = document.createElement('input');
+    count.type = 'number';
+    count.min = '1';
+    count.id = 'item-count';
+    count.value = String(brushCount);
+    count.addEventListener('change', () => {
+      brushCount = Math.max(1, Math.floor(Number(count.value)) || 1);
+      count.value = String(brushCount);
+    });
+    wrap.append(field('Count (ammo)', count));
+    const list = document.createElement('div');
+    list.className = 'monster-list';
+    for (const def of Object.values(ITEMS)) {
+      const button = document.createElement('button');
+      button.className = `monster-row${brushItem === def.id ? ' on' : ''}`;
+      button.dataset['item'] = def.id;
+      const glyph = document.createElement('span');
+      glyph.className = 'monster-glyph';
+      glyph.style.color = def.fg;
+      glyph.textContent = def.glyph;
+      const label = document.createElement('span');
+      label.textContent = itemLabel(def);
+      button.append(glyph, label);
+      button.addEventListener('click', () => {
+        brushItem = def.id;
+        refreshPalette();
+      });
+      list.append(button);
+    }
+    wrap.append(list);
+    return wrap;
+  }
+
   function buildHeightPalette(): HTMLElement {
     const wrap = document.createElement('div');
 
@@ -1477,6 +1602,10 @@ async function boot(): Promise<void> {
       inspectorEl.append(selectedMonster ? buildMonsterForm(selectedMonster) : buildHint('No monster selected.'));
       return;
     }
+    if (mode === 'item') {
+      inspectorEl.append(selectedItem ? buildItemInspector(selectedItem) : buildHint('No item selected.'));
+      return;
+    }
     if (mode === 'transition') {
       inspectorEl.append(selectedTransition ? buildTransitionForm(selectedTransition) : buildHint('No transition selected.'));
       return;
@@ -1485,7 +1614,7 @@ async function boot(): Promise<void> {
       inspectorEl.append(buildingRect ? buildBuildingForm(buildingRect) : buildHint('Drag a rectangle to start a new building.'));
       return;
     }
-    inspectorEl.append(buildHint('Switch to the NPCs, Monsters or Transitions mode to edit markers.'));
+    inspectorEl.append(buildHint('Switch to the NPCs, Monsters, Items or Transitions mode to edit markers.'));
   }
 
   function field(labelText: string, input: HTMLElement): HTMLElement {
@@ -1625,6 +1754,190 @@ async function boot(): Promise<void> {
     return form;
   }
 
+  /** The items on the selected item's cell, each removable, plus a button to drop the brush item there too. */
+  function buildItemInspector(selected: EditableGroundItem): HTMLElement {
+    const form = document.createElement('div');
+    form.className = 'form';
+    const info = document.createElement('div');
+    info.className = 'id-display';
+    info.textContent = `Items @ (${selected.x}, ${selected.y})`;
+    form.append(info);
+    for (const item of doc?.itemsAt(selected.x, selected.y) ?? []) {
+      const def = ITEMS[item.defId];
+      const row = document.createElement('div');
+      row.className = `place-row${item === selected ? ' on' : ''}`;
+      const glyph = document.createElement('span');
+      glyph.className = 'monster-glyph';
+      glyph.style.color = def?.fg ?? PALETTE.hostileRing;
+      glyph.textContent = def?.glyph ?? '?';
+      const label = document.createElement('button');
+      label.textContent = def ? def.name : `${item.defId} (unknown)`;
+      label.style.flex = '1';
+      label.style.textAlign = 'left';
+      label.addEventListener('click', () => {
+        selectedItem = item;
+        refreshInspector();
+        redraw();
+      });
+      row.append(glyph, label);
+      if (def?.kind === 'ammo') {
+        const count = document.createElement('input');
+        count.type = 'number';
+        count.min = '1';
+        count.style.width = '52px';
+        count.value = String(item.count ?? 1);
+        count.addEventListener('change', () => {
+          doc?.beginStroke();
+          item.count = Math.max(1, Math.floor(Number(count.value)) || 1);
+          count.value = String(item.count);
+          markDirty();
+        });
+        row.append(count);
+      }
+      const del = document.createElement('button');
+      del.textContent = 'x';
+      del.className = 'danger';
+      del.title = 'Remove this item';
+      del.addEventListener('click', () => {
+        doc?.beginStroke();
+        doc?.removeItem(item);
+        selectedItem = doc?.itemsAt(selected.x, selected.y).at(-1) ?? null;
+        refreshInspector();
+        redraw();
+        markDirty();
+      });
+      row.append(del);
+      form.append(row);
+    }
+    const add = document.createElement('button');
+    add.textContent = `Add ${ITEMS[brushItem]?.name ?? brushItem} here`;
+    add.addEventListener('click', () => {
+      doc?.beginStroke();
+      selectedItem = doc?.addItem(brushItem, selected.x, selected.y, newItemCount(brushItem)) ?? selectedItem;
+      refreshInspector();
+      redraw();
+      markDirty();
+    });
+    form.append(add);
+    return form;
+  }
+
+  /** "Carries" section shared by the NPC and monster forms: items, wielded weapon, readied ammo. */
+  function buildCarriesSection(owner: EditableLoadout): HTMLElement {
+    const box = document.createElement('div');
+    box.className = 'field carries';
+    const title = document.createElement('span');
+    title.textContent = 'Carries';
+    box.append(title);
+
+    const changed = (): void => {
+      refreshInspector();
+      markDirty();
+    };
+    const entries = owner.inventory ?? [];
+    entries.forEach((entry, index) => {
+      const defId = typeof entry === 'string' ? entry : entry.defId;
+      const count = typeof entry === 'string' ? undefined : entry.count;
+      const def = ITEMS[defId];
+      const row = document.createElement('div');
+      row.className = 'place-row';
+      const glyph = document.createElement('span');
+      glyph.className = 'monster-glyph';
+      glyph.style.color = def?.fg ?? PALETTE.hostileRing;
+      glyph.textContent = def?.glyph ?? '?';
+      const label = document.createElement('span');
+      label.style.flex = '1';
+      label.textContent = (def ? def.name : `${defId} (unknown)`) + (count !== undefined ? ` x${count}` : '');
+      const del = document.createElement('button');
+      del.textContent = 'x';
+      del.className = 'danger';
+      del.title = 'Remove from inventory';
+      del.addEventListener('click', () => {
+        doc?.beginStroke();
+        doc?.removeCarried(owner, index);
+        changed();
+      });
+      row.append(glyph, label, del);
+      box.append(row);
+    });
+    if (entries.length === 0) box.append(buildHint('Nothing.'));
+
+    const addRow = document.createElement('div');
+    addRow.className = 'place-row';
+    const pick = document.createElement('select');
+    pick.className = 'carry-add';
+    pick.style.flex = '1';
+    pick.style.minWidth = '0';
+    for (const def of Object.values(ITEMS)) {
+      const option = document.createElement('option');
+      option.value = def.id;
+      option.textContent = itemLabel(def);
+      pick.append(option);
+    }
+    const amount = document.createElement('input');
+    amount.type = 'number';
+    amount.min = '1';
+    amount.style.width = '52px';
+    amount.style.flex = 'none';
+    amount.value = String(brushCount);
+    amount.title = 'Count (ammo only)';
+    const syncAmount = (): void => {
+      amount.disabled = ITEMS[pick.value]?.kind !== 'ammo';
+    };
+    pick.addEventListener('change', syncAmount);
+    syncAmount();
+    const addButton = document.createElement('button');
+    addButton.textContent = 'Add item';
+    addButton.className = 'carry-add-button';
+    addButton.addEventListener('click', () => {
+      doc?.beginStroke();
+      doc?.addCarried(owner, pick.value, Math.max(1, Math.floor(Number(amount.value)) || 1));
+      changed();
+    });
+    addRow.append(pick, amount);
+    box.append(addRow, addButton);
+
+    const carried = doc?.carriedDefIds(owner) ?? [];
+    const choose = (
+      labelText: string,
+      current: string | undefined,
+      eligible: (def: ItemDef) => boolean,
+      apply: (defId: string | undefined) => void,
+      className: string,
+    ): void => {
+      const select = document.createElement('select');
+      select.className = className;
+      const none = document.createElement('option');
+      none.value = '';
+      none.textContent = '(none)';
+      select.append(none);
+      for (const id of carried) {
+        const def = ITEMS[id];
+        if (!def || !eligible(def)) continue;
+        const option = document.createElement('option');
+        option.value = id;
+        option.textContent = def.name;
+        select.append(option);
+      }
+      select.value = current ?? '';
+      select.addEventListener('change', () => {
+        doc?.beginStroke();
+        apply(select.value === '' ? undefined : select.value);
+        changed();
+      });
+      box.append(field(labelText, select));
+    };
+    choose('Wields', owner.wield, (d) => d.kind === 'weapon' || d.kind === 'gun', (id) => void doc?.setWield(owner, id), 'carry-wield');
+    choose('Readied ammo', owner.ready, (d) => d.kind === 'ammo', (id) => void doc?.setReady(owner, id), 'carry-ready');
+
+    box.append(
+      buildHint(
+        'If a hostile NPC carries a gun and ammo it will draw it and shoot; leave Wields empty so they draw it when provoked.',
+      ),
+    );
+    return box;
+  }
+
   function buildNpcForm(npc: EditableNpc): HTMLElement {
     const form = document.createElement('div');
     form.className = 'form';
@@ -1700,6 +2013,7 @@ async function boot(): Promise<void> {
     interactionHint.textContent = 'At least one. With more than one, bumping the NPC opens a menu.';
     interactionBox.append(interactionHint);
     form.append(interactionBox);
+    form.append(buildCarriesSection(npc));
 
     const deleteButton = document.createElement('button');
     deleteButton.textContent = 'Delete NPC';
@@ -1749,6 +2063,7 @@ async function boot(): Promise<void> {
       markDirty();
     });
     form.append(field('Type', typeSelect));
+    form.append(buildCarriesSection(monster));
 
     const deleteButton = document.createElement('button');
     deleteButton.textContent = 'Delete monster';
@@ -1895,6 +2210,7 @@ const LAYOUT = `
       <button data-mode="height">Height</button>
       <button data-mode="npc">NPCs</button>
       <button data-mode="monster">Monsters</button>
+      <button data-mode="item">Items</button>
       <button data-mode="transition">Transitions</button>
     </span>
     <span class="tools">

@@ -44,3 +44,16 @@ export function applyLoadout(carrier: Carrier, loadout: LoadoutJSON | undefined)
     carrier.readied = item.id;
   }
 }
+
+/** The inverse of applyLoadout: what someone carries, as map JSON (empty fields omitted). */
+export function loadoutOf(carrier: Carrier): LoadoutJSON {
+  const out: LoadoutJSON = {};
+  if (carrier.inventory.length > 0) {
+    out.inventory = carrier.inventory.map((i) => (i.count === undefined ? i.defId : { defId: i.defId, count: i.count }));
+  }
+  const wielded = carrier.inventory.find((i) => i.id === carrier.wielded);
+  if (wielded) out.wield = wielded.defId;
+  const readied = carrier.inventory.find((i) => i.id === carrier.readied);
+  if (readied) out.ready = readied.defId;
+  return out;
+}

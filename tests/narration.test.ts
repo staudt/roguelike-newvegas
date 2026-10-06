@@ -224,7 +224,7 @@ describe('attack messages in the log (engine level)', () => {
     const gecko = createMonster('g', 'gecko', 1, 0);
     gecko.hp = 1;
     const { state } = buildArena({ width: 3, height: 1, player: { x: 0, y: 0 }, monsters: [gecko] });
-    playerAttacks(state, gecko, scriptedRNG([0, 0.5, 0]));
+    playerAttacks(state, gecko, scriptedRNG([0, 0.5, 0, 0.99]));
     expect(state.messageLog.at(-1)).toBe('The gecko dies!');
   });
 

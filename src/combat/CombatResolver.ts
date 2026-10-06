@@ -1,3 +1,5 @@
+import { RANGE_PENALTY_PER_CELL } from '../config/constants';
+import type { ShotProfile } from '../items/ItemData';
 import { computeToHit, strengthDamageBonus } from './CombatFormulas';
 import type { AttackProfile, Combatant } from './Combatant';
 import { limbAccuracyPenalty, limbCondition, type Limb, type LimbCondition } from './Limbs';
@@ -17,7 +19,11 @@ export interface AttackResult {
 }
 
 /** Chooses which limb a blow lands on, weighted by the weapon's hit profile. */
-export function pickLimb(rng: RNG, defender: Combatant, attack: AttackProfile): Limb {
+export function pickLimb(
+  rng: RNG,
+  defender: Combatant,
+  attack: Pick<AttackProfile, 'hitProfile'>,
+): Limb {
   const perKind = new Map<string, number>();
   for (const limb of defender.limbs) perKind.set(limb.kind, (perKind.get(limb.kind) ?? 0) + 1);
 
@@ -66,5 +72,47 @@ export function resolveMelee(
     limbBefore,
     limbAfter: limbCondition(limb),
     killed: defender.hp <= 0,
+  };
+}
+
+/**
+ * One bullet at a target `distanceCells` away (1 = adjacent). Aim is Perception (Agility for
+ * creatures without one); every cell beyond the first costs RANGE_PENALTY_PER_CELL. No Strength
+ * bonus; heads hurt more, as in melee. Mutates `target`.
+ */
+export function resolveShot(
+  rng: RNG,
+  shooter: Combatant,
+  target: Combatant,
+  shot: ShotProfile,
+  distanceCells: number,
+): AttackResult {
+  const chance = computeToHit(
+    shooter.perception ?? shooter.agility,
+    shot.accuracyBonus - RANGE_PENALTY_PER_CELL * Math.max(0, distanceCells - 1),
+    limbAccuracyPenalty(shooter.limbs),
+    target.ac,
+  );
+
+  if (randomInt(rng, 1, 100) > chance) {
+    return { hit: false, damage: 0, limb: null, limbBefore: null, limbAfter: null, killed: false };
+  }
+
+  const limb = pickLimb(rng, target, shot);
+  let damage = randomInt(rng, shot.damage.min, shot.damage.max);
+  if (limb.kind === 'head') damage = Math.round(damage * HEAD_DAMAGE_MULTIPLIER);
+  damage = Math.max(1, damage);
+
+  const limbBefore = limbCondition(limb);
+  limb.hp = Math.max(0, limb.hp - damage);
+  target.hp -= damage;
+
+  return {
+    hit: true,
+    damage,
+    limb,
+    limbBefore,
+    limbAfter: limbCondition(limb),
+    killed: target.hp <= 0,
   };
 }

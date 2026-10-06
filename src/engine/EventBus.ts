@@ -1,5 +1,6 @@
 import type { Creature } from '../entities/Creature';
 import type { Npc } from '../entities/Npc';
+import type { Point } from '../utils/geometry';
 
 /**
  * Decouples systems from each other (e.g. UI reacting to state changes without TurnManager
@@ -14,6 +15,8 @@ export interface GameEvents {
   /** Bumped someone with more than one thing to offer: open the interaction menu. */
   'npc-menu': { npc: Npc };
   'player-died': Record<string, never>;
+  /** A bullet flew: the cells it crossed (in order, ending at whatever it hit), for the tracer. */
+  'shot-fired': { path: Point[]; shooterId: string; hitId?: string };
   [event: string]: unknown;
 }
 

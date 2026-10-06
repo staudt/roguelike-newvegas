@@ -24,6 +24,7 @@ export function narrateAttack(
   defender: Party,
   weaponName: string,
   result: AttackResult,
+  verbs: { hit: string; hits: string } = { hit: 'hit', hits: 'hits' },
 ): string[] {
   const weapon = `${attacker.possessive} ${weaponName}`;
   const lines: string[] = [];
@@ -40,8 +41,8 @@ export function narrateAttack(
   const limb = result.limb!;
   lines.push(
     attacker.isPlayer
-      ? `You hit ${defender.name} in the ${limb.name} with ${weapon}.`
-      : `${capitalize(attacker.name)} hits ${defender.name} in the ${limb.name} with ${weapon}.`,
+      ? `You ${verbs.hit} ${defender.name} in the ${limb.name} with ${weapon}.`
+      : `${capitalize(attacker.name)} ${verbs.hits} ${defender.name} in the ${limb.name} with ${weapon}.`,
   );
 
   if (result.killed) {
@@ -56,4 +57,17 @@ export function narrateAttack(
   }
 
   return lines;
+}
+
+/**
+ * Same lines for a bullet: "You shoot the gecko in the left leg with your 9mm pistol.",
+ * "Ringo misses you with their 9mm pistol." (death and crippling lines are shared with melee).
+ */
+export function narrateShot(
+  shooter: Party,
+  target: Party,
+  weaponName: string,
+  result: AttackResult,
+): string[] {
+  return narrateAttack(shooter, target, weaponName, result, { hit: 'shoot', hits: 'shoots' });
 }

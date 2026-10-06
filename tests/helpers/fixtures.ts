@@ -69,7 +69,7 @@ export function buildArena(opts: ArenaOptions): Arena {
   const state = createGameState(createPlayer(opts.player.x, opts.player.y), { arena: space }, 'arena');
   const events = new EventBus<GameEvents>();
   const emitted: Arena['emitted'] = [];
-  for (const name of ['turn-ended', 'npc-interacted', 'space-changed', 'attack-prompted', 'npc-menu', 'player-died']) {
+  for (const name of ['turn-ended', 'npc-interacted', 'space-changed', 'attack-prompted', 'npc-menu', 'player-died', 'shot-fired']) {
     events.on(name, (payload: unknown) => emitted.push({ name, payload }));
   }
   return { state, events, grid, emitted };

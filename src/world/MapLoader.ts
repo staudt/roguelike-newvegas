@@ -1,6 +1,9 @@
 import type { GroundItem, Place, Space } from '../engine/GameState';
 import { createMonster } from '../entities/Monster';
 import { createNpc, type InteractionId } from '../entities/Npc';
+import { addGroundItem } from '../engine/GroundItems';
+import { createItem } from '../items/Item';
+import { applyLoadout, loadoutOf, type LoadoutJSON } from '../items/Loadout';
 import type { Point, Rect } from '../utils/geometry';
 import { VisibleSet } from '../fov/VisibleSet';
 import { ChunkedMap } from './ChunkedMap';
@@ -25,7 +28,7 @@ export interface SpaceJSON {
   tiles: string[];
   /** Row-major terrain height 0..4, length width*height. Ignored for non-ground tiles. */
   heights: number[];
-  npcs: Array<{
+  npcs: Array<LoadoutJSON & {
     id: string;
     name: string;
     x: number;
@@ -36,7 +39,9 @@ export interface SpaceJSON {
     interactions?: InteractionId[];
   }>;
   /** Creatures placed from the monster table. Omitted means none. */
-  monsters?: Array<{ defId: string; x: number; y: number }>;
+  monsters?: Array<LoadoutJSON & { defId: string; x: number; y: number }>;
+  /** Items lying on the floor. Omitted means none. */
+  items?: Array<{ defId: string; x: number; y: number; count?: number }>;
   transitions: Array<{ x: number; y: number; toSpace: string }>;
   /** Named rectangles (buildings, districts) shown as the Location. Omitted means none. */
   places?: Array<{ name: string; rect: Rect }>;
@@ -48,15 +53,29 @@ export interface SpaceJSON {
   floor?: number;
 }
 
-type EntityJSON = Pick<SpaceJSON, 'npcs' | 'monsters' | 'transitions' | 'places'>;
+type EntityJSON = Pick<SpaceJSON, 'npcs' | 'monsters' | 'transitions' | 'places' | 'items'>;
 
 function buildEntities(data: EntityJSON) {
+  const npcs = data.npcs.map((n) => {
+    const npc = createNpc(n.id, n.name, n.x, n.y, n.dialogue, n.fg, n.interactions);
+    applyLoadout(npc, n);
+    return npc;
+  });
+  const monsters = (data.monsters ?? []).map((m, i) => {
+    const monster = createMonster(`${m.defId}-${i + 1}`, m.defId, m.x, m.y);
+    applyLoadout(monster, m);
+    return monster;
+  });
+  const space = { items: [] as GroundItem[] };
+  for (const g of data.items ?? []) {
+    addGroundItem(space, g.x, g.y, createItem(g.defId, g.count));
+  }
   return {
-    npcs: data.npcs.map((n) => createNpc(n.id, n.name, n.x, n.y, n.dialogue, n.fg, n.interactions)),
-    monsters: (data.monsters ?? []).map((m, i) => createMonster(`${m.defId}-${i + 1}`, m.defId, m.x, m.y)),
+    npcs,
+    monsters,
     transitions: data.transitions.map((t) => ({ ...t })),
     places: (data.places ?? []).map((pl): Place => ({ name: pl.name, rect: { ...pl.rect } })),
-    items: [] as GroundItem[],
+    items: space.items,
   };
 }
 
@@ -73,6 +92,7 @@ export interface WorldMetaJSON {
   monsters?: SpaceJSON['monsters'];
   transitions: SpaceJSON['transitions'];
   places?: SpaceJSON['places'];
+  items?: SpaceJSON['items'];
 }
 
 export function isWorldMeta(data: unknown): data is WorldMetaJSON {
@@ -145,9 +165,20 @@ export function serializeSpace(space: Space): SpaceJSON {
       dialogue: [...n.dialogue],
       fg: n.fg,
       interactions: [...n.interactions],
+      ...loadoutOf(n),
     })),
-    monsters: space.monsters.map((m) => ({ defId: m.defId, x: m.x, y: m.y })),
+    monsters: space.monsters.map((m) => ({ defId: m.defId, x: m.x, y: m.y, ...loadoutOf(m) })),
+    ...(space.items.length === 0 ? {} : { items: serializeItems(space) }),
     transitions: space.transitions.map((t) => ({ ...t })),
     places: space.places.map((pl) => ({ name: pl.name, rect: { ...pl.rect } })),
   };
+}
+
+function serializeItems(space: Space): NonNullable<SpaceJSON['items']> {
+  return space.items.map((g) => ({
+      defId: g.item.defId,
+      x: g.x,
+      y: g.y,
+      ...(g.item.count !== undefined ? { count: g.item.count } : {}),
+    }));
 }

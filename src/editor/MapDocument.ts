@@ -1,6 +1,7 @@
 import { MAX_GROUND_HEIGHT } from '../config/palette';
 import type { Point, Rect } from '../utils/geometry';
 import type { InteractionId } from '../entities/Npc';
+import { ITEMS } from '../items/ItemData';
 import type { BuildingPatch } from '../world/buildingTemplate';
 import { ChunkedMap, chunkKey, createChunk, type Chunk } from '../world/ChunkedMap';
 import { chunkToText, decodeChunk, encodeChunk, type ChunkJSON } from '../world/ChunkCodec';
@@ -20,7 +21,27 @@ import type { TileMap } from '../world/TileMap';
  * touches (plus the entity lists, which are tiny), never a copy of the map — the world can be
  * arbitrarily large.
  */
-export interface EditableNpc {
+/** One carried item as stored on disk: a bare def id, or `{defId, count}` (ammo stacks). */
+export type CarriedEntry = string | { defId: string; count?: number };
+
+/** What an NPC or monster carries; mirrors the engine's `LoadoutJSON`. */
+export interface EditableLoadout {
+  inventory?: CarriedEntry[];
+  /** Def id of the wielded weapon/gun; must be carried. */
+  wield?: string;
+  /** Def id of the readied ammo; must be carried. */
+  ready?: string;
+}
+
+/** Keys the editor does not model are carried through untouched in `extras`. */
+interface Passthrough {
+  /** Unknown keys of the loaded entry, deep-copied and re-emitted on save. */
+  extras?: Record<string, unknown>;
+  /** Key order of the loaded entry, so a no-op save is byte-identical whatever order the file used. */
+  keyOrder?: string[];
+}
+
+export interface EditableNpc extends EditableLoadout, Passthrough {
   id: string;
   name: string;
   x: number;
@@ -32,10 +53,18 @@ export interface EditableNpc {
   interactions: InteractionId[];
 }
 
-export interface EditableMonster {
+export interface EditableMonster extends EditableLoadout, Passthrough {
   defId: string;
   x: number;
   y: number;
+}
+
+/** An item lying on the ground, in world coordinates. */
+export interface EditableGroundItem extends Passthrough {
+  defId: string;
+  x: number;
+  y: number;
+  count?: number;
 }
 
 export interface EditablePlace {
@@ -49,7 +78,7 @@ export interface EditableTransition {
   toSpace: string;
 }
 
-export interface NpcJson {
+export interface NpcJson extends EditableLoadout {
   id: string;
   name: string;
   x: number;
@@ -57,6 +86,22 @@ export interface NpcJson {
   dialogue: string[];
   fg?: string;
   interactions?: InteractionId[];
+  [extra: string]: unknown;
+}
+
+export interface MonsterJson extends EditableLoadout {
+  defId: string;
+  x: number;
+  y: number;
+  [extra: string]: unknown;
+}
+
+export interface GroundItemJson {
+  defId: string;
+  x: number;
+  y: number;
+  count?: number;
+  [extra: string]: unknown;
 }
 
 /** world.json: everything about the world except its cells (those live in chunk files). */
@@ -66,9 +111,10 @@ export interface WorldMetaJSON {
   name: string;
   playerStart?: Point;
   npcs: NpcJson[];
-  monsters?: Array<{ defId: string; x: number; y: number }>;
+  monsters?: MonsterJson[];
   transitions: Array<{ x: number; y: number; toSpace: string }>;
   places?: Array<{ name: string; rect: Rect }>;
+  items?: GroundItemJson[];
 }
 
 /** A flat space file (an extra floor of a building): the pre-chunk `SpaceJSON` shape. */
@@ -82,9 +128,10 @@ export interface FlatSpaceJSON {
   tiles: string[];
   heights: number[];
   npcs: NpcJson[];
-  monsters?: Array<{ defId: string; x: number; y: number }>;
+  monsters?: MonsterJson[];
   transitions: Array<{ x: number; y: number; toSpace: string }>;
   places?: Array<{ name: string; rect: Rect }>;
+  items?: GroundItemJson[];
   playerStart?: Point;
   building?: string;
   floor?: number;
@@ -112,6 +159,7 @@ interface Stroke {
   monsters: EditableMonster[];
   transitions: EditableTransition[];
   places: EditablePlace[];
+  items: EditableGroundItem[];
   playerStart: Point | undefined;
 }
 
@@ -126,27 +174,153 @@ export interface SavePlan {
   flatText: string | null;
 }
 
-function copyNpc(n: EditableNpc): EditableNpc {
-  return { ...n, dialogue: [...n.dialogue], interactions: [...n.interactions] };
+function copyLoadout(from: EditableLoadout, to: EditableLoadout): void {
+  if (from.inventory) to.inventory = from.inventory.map((c) => (typeof c === 'string' ? c : { ...c }));
+  if (from.wield !== undefined) to.wield = from.wield;
+  if (from.ready !== undefined) to.ready = from.ready;
 }
 
-function npcFromJson(n: NpcJson): EditableNpc {
-  return { ...n, dialogue: [...n.dialogue], interactions: n.interactions ? [...n.interactions] : ['talk'] };
-}
+const NPC_KEYS = ['id', 'name', 'x', 'y', 'fg', 'interactions', 'inventory', 'wield', 'ready', 'dialogue'];
+const MONSTER_KEYS = ['defId', 'x', 'y', 'inventory', 'wield', 'ready'];
+const ITEM_KEYS = ['defId', 'x', 'y', 'count'];
 
-/** Writes `interactions` only when it differs from the default, keeping files that never used it unchanged. */
-function npcToJson(n: EditableNpc): NpcJson {
-  // Explicit key order (matches the hand-authored files) so a no-op save produces no diff.
-  const custom = n.interactions.length !== 1 || n.interactions[0] !== 'talk';
+/** Splits a JSON entry into the keys the editor models and the rest (deep-copied), remembering key order. */
+function splitExtras(json: Record<string, unknown>, known: readonly string[]): Passthrough {
+  const extras: Record<string, unknown> = {};
+  for (const key of Object.keys(json)) if (!known.includes(key)) extras[key] = structuredClone(json[key]);
   return {
+    ...(Object.keys(extras).length > 0 ? { extras } : {}),
+    keyOrder: Object.keys(json),
+  };
+}
+
+function copyPassthrough(from: Passthrough, to: Passthrough): void {
+  if (from.extras) to.extras = structuredClone(from.extras);
+  if (from.keyOrder) to.keyOrder = [...from.keyOrder];
+}
+
+/**
+ * Emits an entry's keys: the editor's own keys in `canonical` order, then unknown extras; if the
+ * entry was loaded, its original key order wins (keys added since slot in after their canonical
+ * predecessor), so a no-op save changes nothing.
+ */
+function emit(canonical: ReadonlyArray<readonly [string, unknown]>, pass: Passthrough): Record<string, unknown> {
+  const values = new Map<string, unknown>();
+  for (const [k, v] of canonical) if (v !== undefined) values.set(k, v);
+  for (const [k, v] of Object.entries(pass.extras ?? {})) values.set(k, structuredClone(v));
+  const natural = [...values.keys()];
+  let order = natural;
+  if (pass.keyOrder) {
+    order = pass.keyOrder.filter((k) => values.has(k));
+    for (let i = 0; i < natural.length; i++) {
+      const key = natural[i]!;
+      if (order.includes(key)) continue;
+      let at = 0;
+      for (let j = i - 1; j >= 0; j--) {
+        const idx = order.indexOf(natural[j]!);
+        if (idx >= 0) {
+          at = idx + 1;
+          break;
+        }
+      }
+      order.splice(at, 0, key);
+    }
+  }
+  const out: Record<string, unknown> = {};
+  for (const k of order) out[k] = values.get(k);
+  return out;
+}
+
+function copyNpc(n: EditableNpc): EditableNpc {
+  const copy: EditableNpc = {
     id: n.id,
     name: n.name,
     x: n.x,
     y: n.y,
-    ...(n.fg !== undefined ? { fg: n.fg } : {}),
-    ...(custom ? { interactions: [...n.interactions] } : {}),
     dialogue: [...n.dialogue],
+    interactions: [...n.interactions],
   };
+  if (n.fg !== undefined) copy.fg = n.fg;
+  copyLoadout(n, copy);
+  copyPassthrough(n, copy);
+  return copy;
+}
+
+function copyMonster(m: EditableMonster): EditableMonster {
+  const copy: EditableMonster = { defId: m.defId, x: m.x, y: m.y };
+  copyLoadout(m, copy);
+  copyPassthrough(m, copy);
+  return copy;
+}
+
+function copyItem(i: EditableGroundItem): EditableGroundItem {
+  const copy: EditableGroundItem = { defId: i.defId, x: i.x, y: i.y };
+  if (i.count !== undefined) copy.count = i.count;
+  copyPassthrough(i, copy);
+  return copy;
+}
+
+function npcFromJson(n: NpcJson): EditableNpc {
+  const npc: EditableNpc = {
+    id: n.id,
+    name: n.name,
+    x: n.x,
+    y: n.y,
+    dialogue: [...n.dialogue],
+    interactions: n.interactions ? [...n.interactions] : ['talk'],
+  };
+  if (n.fg !== undefined) npc.fg = n.fg;
+  copyLoadout(n, npc);
+  copyPassthrough(splitExtras(n, NPC_KEYS), npc);
+  return npc;
+}
+
+function monsterFromJson(m: MonsterJson): EditableMonster {
+  const monster: EditableMonster = { defId: m.defId, x: m.x, y: m.y };
+  copyLoadout(m, monster);
+  copyPassthrough(splitExtras(m, MONSTER_KEYS), monster);
+  return monster;
+}
+
+function itemFromJson(i: GroundItemJson): EditableGroundItem {
+  const item: EditableGroundItem = { defId: i.defId, x: i.x, y: i.y };
+  if (i.count !== undefined) item.count = i.count;
+  copyPassthrough(splitExtras(i, ITEM_KEYS), item);
+  return item;
+}
+
+function loadoutFields(e: EditableLoadout): Array<readonly [string, unknown]> {
+  return [
+    ['inventory', e.inventory ? e.inventory.map((c) => (typeof c === 'string' ? c : { ...c })) : undefined],
+    ['wield', e.wield],
+    ['ready', e.ready],
+  ];
+}
+
+/** Writes `interactions` only when it differs from the default, keeping files that never used it unchanged. */
+function npcToJson(n: EditableNpc): NpcJson {
+  const custom = n.interactions.length !== 1 || n.interactions[0] !== 'talk';
+  return emit(
+    [
+      ['id', n.id],
+      ['name', n.name],
+      ['x', n.x],
+      ['y', n.y],
+      ['fg', n.fg],
+      ['interactions', custom ? [...n.interactions] : undefined],
+      ...loadoutFields(n),
+      ['dialogue', [...n.dialogue]],
+    ],
+    n,
+  ) as NpcJson;
+}
+
+function monsterToJson(m: EditableMonster): MonsterJson {
+  return emit([['defId', m.defId], ['x', m.x], ['y', m.y], ...loadoutFields(m)], m) as MonsterJson;
+}
+
+function itemToJson(i: EditableGroundItem): GroundItemJson {
+  return emit([['defId', i.defId], ['x', i.x], ['y', i.y], ['count', i.count]], i) as GroundItemJson;
 }
 
 function copyPlaces(places: readonly EditablePlace[]): EditablePlace[] {
@@ -169,11 +343,14 @@ export class MapDocument {
   monsters: EditableMonster[];
   transitions: EditableTransition[];
   places: EditablePlace[];
+  items: EditableGroundItem[];
   playerStart: Point | undefined;
   /** Flat spaces only: metadata carried through untouched so a save never drops it. */
   readonly flatExtras: { indoor: boolean; building: string | undefined; floor: number | undefined };
   /** World only: whether the loaded file had a `places` key, so a no-op save keeps its shape. */
   private readonly hadPlacesKey: boolean;
+  /** Whether the loaded file had an `items` key, so a no-op save keeps its shape. */
+  private readonly hadItemsKey: boolean;
   /** Chunk files believed to exist on disk, keyed by chunkKey. */
   private readonly onDisk = new Map<number, { cx: number; cy: number }>();
   private readonly undoStack: Stroke[] = [];
@@ -188,10 +365,12 @@ export class MapDocument {
     this.id = data.id;
     this.name = data.name;
     this.npcs = data.npcs.map(npcFromJson);
-    this.monsters = (data.monsters ?? []).map((m) => ({ ...m }));
+    this.monsters = (data.monsters ?? []).map(monsterFromJson);
     this.transitions = data.transitions.map((t) => ({ ...t }));
     this.places = copyPlaces(data.places ?? []);
+    this.items = (data.items ?? []).map(itemFromJson);
     this.playerStart = data.playerStart ? { ...data.playerStart } : undefined;
+    this.hadItemsKey = data.items !== undefined;
     this.hadPlacesKey = data.places !== undefined;
     const flat = kind === 'flat' ? (data as FlatSpaceJSON) : undefined;
     this.flatExtras = { indoor: flat?.indoor ?? false, building: flat?.building, floor: flat?.floor };
@@ -252,9 +431,10 @@ export class MapDocument {
       addedChunks: [],
       removedChunks: [],
       npcs: this.npcs.map(copyNpc),
-      monsters: this.monsters.map((m) => ({ ...m })),
+      monsters: this.monsters.map(copyMonster),
       transitions: this.transitions.map((t) => ({ ...t })),
       places: copyPlaces(this.places),
+      items: this.items.map(copyItem),
       playerStart: this.playerStart ? { ...this.playerStart } : undefined,
     });
     if (this.undoStack.length > MAX_UNDO) this.undoStack.shift();
@@ -280,6 +460,7 @@ export class MapDocument {
     this.monsters = stroke.monsters;
     this.transitions = stroke.transitions;
     this.places = stroke.places;
+    this.items = stroke.items;
     this.playerStart = stroke.playerStart;
     return true;
   }
@@ -490,9 +671,10 @@ export class MapDocument {
       name: this.name,
       ...(this.playerStart ? { playerStart: { ...this.playerStart } } : {}),
       npcs: this.npcs.map(npcToJson),
-      monsters: this.monsters.map((m) => ({ ...m })),
+      monsters: this.monsters.map(monsterToJson),
       transitions: this.transitions.map((t) => ({ ...t })),
       ...(this.places.length > 0 || this.hadPlacesKey ? { places: copyPlaces(this.places) } : {}),
+      ...(this.items.length > 0 || this.hadItemsKey ? { items: this.items.map(itemToJson) } : {}),
     };
     return JSON.stringify(meta, null, 2) + '\n';
   }
@@ -517,10 +699,11 @@ export class MapDocument {
       tiles,
       heights,
       npcs: this.npcs.map(npcToJson),
-      monsters: this.monsters.map((m) => ({ ...m })),
+      monsters: this.monsters.map(monsterToJson),
       transitions: this.transitions.map((t) => ({ ...t })),
     };
     if (this.places.length > 0) json.places = copyPlaces(this.places);
+    if (this.items.length > 0 || this.hadItemsKey) json.items = this.items.map(itemToJson);
     if (this.playerStart) json.playerStart = { ...this.playerStart };
     if (this.flatExtras.building !== undefined) json.building = this.flatExtras.building;
     if (this.flatExtras.floor !== undefined) json.floor = this.flatExtras.floor;
@@ -620,6 +803,93 @@ export class MapDocument {
 
   removeMonster(monster: EditableMonster): void {
     this.monsters = this.monsters.filter((m) => m !== monster);
+  }
+
+  // --- ground items -----------------------------------------------------------------------------
+
+  /** Items on a cell, bottom to top (the last one is drawn). */
+  itemsAt(x: number, y: number): EditableGroundItem[] {
+    return this.items.filter((i) => i.x === x && i.y === y);
+  }
+
+  /** Callers `beginStroke()` first, as for the other entity edits. `count` is kept only when given. */
+  addItem(defId: string, x: number, y: number, count?: number): EditableGroundItem {
+    const item: EditableGroundItem = { defId, x, y };
+    if (count !== undefined) item.count = count;
+    this.items.push(item);
+    return item;
+  }
+
+  moveItem(item: EditableGroundItem, x: number, y: number): void {
+    item.x = x;
+    item.y = y;
+  }
+
+  removeItem(item: EditableGroundItem): void {
+    this.items = this.items.filter((i) => i !== item);
+  }
+
+  // --- loadouts (what NPCs and monsters carry) ----------------------------------------------------
+
+  /** Def ids carried, without duplicates, in carrying order. */
+  carriedDefIds(owner: EditableLoadout): string[] {
+    const ids: string[] = [];
+    for (const entry of owner.inventory ?? []) {
+      const id = typeof entry === 'string' ? entry : entry.defId;
+      if (!ids.includes(id)) ids.push(id);
+    }
+    return ids;
+  }
+
+  /** Adds an item; more of the same ammo merges into its stack. Callers `beginStroke()` first. */
+  addCarried(owner: EditableLoadout, defId: string, count?: number): void {
+    const inventory = owner.inventory ?? (owner.inventory = []);
+    if (ITEMS[defId]?.kind === 'ammo') {
+      const amount = Math.max(1, Math.floor(count ?? 1));
+      const at = inventory.findIndex((e) => (typeof e === 'string' ? e : e.defId) === defId);
+      const existing = at >= 0 ? inventory[at] : undefined;
+      if (existing !== undefined) {
+        const was = typeof existing === 'string' ? 1 : (existing.count ?? 1);
+        inventory[at] = { defId, count: was + amount };
+      } else {
+        inventory.push({ defId, count: amount });
+      }
+      return;
+    }
+    inventory.push(defId);
+  }
+
+  /** Removes the entry at `index`; clears wield/ready if that was the last of the wielded/readied def. */
+  removeCarried(owner: EditableLoadout, index: number): void {
+    if (!owner.inventory || index < 0 || index >= owner.inventory.length) return;
+    owner.inventory.splice(index, 1);
+    if (owner.inventory.length === 0) delete owner.inventory;
+    const carried = this.carriedDefIds(owner);
+    if (owner.wield !== undefined && !carried.includes(owner.wield)) delete owner.wield;
+    if (owner.ready !== undefined && !carried.includes(owner.ready)) delete owner.ready;
+  }
+
+  /** Wield a carried weapon/gun, or nothing (undefined). Returns false (and changes nothing) if not allowed. */
+  setWield(owner: EditableLoadout, defId: string | undefined): boolean {
+    if (defId === undefined) {
+      delete owner.wield;
+      return true;
+    }
+    const kind = ITEMS[defId]?.kind;
+    if ((kind !== 'weapon' && kind !== 'gun') || !this.carriedDefIds(owner).includes(defId)) return false;
+    owner.wield = defId;
+    return true;
+  }
+
+  /** Ready carried ammo, or nothing (undefined). Returns false (and changes nothing) if not allowed. */
+  setReady(owner: EditableLoadout, defId: string | undefined): boolean {
+    if (defId === undefined) {
+      delete owner.ready;
+      return true;
+    }
+    if (ITEMS[defId]?.kind !== 'ammo' || !this.carriedDefIds(owner).includes(defId)) return false;
+    owner.ready = defId;
+    return true;
   }
 
   // --- places ------------------------------------------------------------------------------------

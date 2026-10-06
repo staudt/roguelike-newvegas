@@ -65,3 +65,9 @@ export const LOSE_TRACK_FACTOR = 2.5;
  * however many creatures the world holds.
  */
 export const SIM_RADIUS = 40;
+
+/** Each cell a shot travels beyond the first costs this many percentage points of to-hit. */
+export const RANGE_PENALTY_PER_CELL = 3;
+
+/** A gunshot alerts every hostile creature within this many cells (Chebyshev) of the shooter. */
+export const GUN_NOISE_RADIUS = 14;

@@ -5,11 +5,13 @@ import { BALLOON_TURNS, NORMAL_SPEED } from '../config/constants';
 import { creatureAt, theName, type Creature } from '../entities/Creature';
 import type { InteractionId, Npc } from '../entities/Npc';
 import { computeVisible, markExplored } from '../fov/Visibility';
-import { itemDef } from '../items/ItemData';
+import { itemWithArticle } from '../items/Item';
+import { isWieldable, itemDef } from '../items/ItemData';
 import { addPoints, type Direction, DIRECTION_VECTORS } from '../utils/geometry';
 import { defaultRNG, type RNG } from '../utils/RNG';
 import { canStep, getTileId, setTileId } from '../world/GameMap';
 import { playerAttacks } from './Combat';
+import { describeGroundHere } from './GroundItems';
 import type { EventBus, GameEvents } from './EventBus';
 import {
   addMessage,
@@ -125,6 +127,9 @@ export function tryMovePlayer(
     else if (placeBefore) addMessage(state, `You leave ${placeBefore}.`);
   }
 
+  const seen = describeGroundHere(state, target.x, target.y);
+  if (seen) addMessage(state, seen);
+
   advanceTurn(state, events, rng);
   return true;
 }
@@ -218,6 +223,10 @@ export function wieldItem(
   } else {
     const item = state.player.inventory.find((i) => i.id === itemId);
     if (!item) return false;
+    if (!isWieldable(itemDef(item.defId))) {
+      addMessage(state, `You can't wield ${itemWithArticle(item)}.`);
+      return false;
+    }
     if (state.player.wielded === item.id) {
       addMessage(state, `You are already wielding the ${itemDef(item.defId).name}.`);
       return false;
