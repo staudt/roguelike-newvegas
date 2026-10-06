@@ -65,6 +65,21 @@ export class Renderer {
     return true;
   }
 
+  /**
+   * A world cell as a pixel rect in the canvas's offset parent (#viewport) — the same space the
+   * menu overlay is positioned in. The canvas is centred in that parent, so its offset is added.
+   * Uses the camera from the last render().
+   */
+  cellRect(worldX: number, worldY: number): Rect {
+    const s = this.camera.worldToScreen(worldX, worldY);
+    return {
+      x: this.canvas.offsetLeft + s.x,
+      y: this.canvas.offsetTop + s.y,
+      width: this.camera.cellW,
+      height: this.camera.cellH,
+    };
+  }
+
   render(state: GameState): void {
     const ctx = this.ctx;
     const space = getActiveSpace(state);

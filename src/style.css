@@ -53,6 +53,11 @@ body {
   padding: 8px 12px;
 }
 
+/* Action menus: left/top are set inline by Menu.reposition(), next to a map cell. */
+#menu-overlay.anchored {
+  min-width: 180px;
+}
+
 #menu-overlay.centered {
   top: 50%;
   left: 50%;
@@ -87,7 +92,8 @@ body {
   font-family: 'Cascadia Mono', 'DejaVu Sans Mono', Consolas, monospace;
   font-size: 14px;
   line-height: 1.25em;
-  padding: 4px 10px;
+  /* Full-width bar, text in a centered 1024px column. */
+  padding: 4px max(10px, calc((100% - 1024px) / 2));
   box-sizing: border-box;
 }
 
@@ -106,7 +112,7 @@ body {
   color: #ecdfc0;
   font-family: 'Cascadia Mono', 'DejaVu Sans Mono', Consolas, monospace;
   font-size: 14px;
-  padding: 5px 10px;
+  padding: 5px max(10px, calc((100% - 1024px) / 2));
   box-sizing: border-box;
 }
 
@@ -183,4 +189,23 @@ body {
 #status-bar .status-prompt .status-value {
   color: #ffb000;
   font-weight: bold;
+}
+
+#menu-overlay .menu-option:has(.menu-key) {
+  display: flex;
+}
+
+#menu-overlay .menu-key {
+  margin-left: auto;
+  padding-left: 24px;
+  color: #ffb000;
+}
+
+#menu-overlay .menu-option.disabled,
+#menu-overlay .menu-option.disabled .menu-key {
+  color: #55634c;
+}
+
+#menu-overlay .menu-option.disabled.selected {
+  color: #7a8f6e;
 }

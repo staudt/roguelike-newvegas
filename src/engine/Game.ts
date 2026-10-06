@@ -11,7 +11,7 @@ import { createItem } from '../items/Item';
 import { itemDef } from '../items/ItemData';
 import type { Direction } from '../utils/geometry';
 import { loadSpace, type SpaceJSON } from '../world/MapLoader';
-import { Menu, type PanelLine } from '../ui/Menu';
+import { Menu, type MenuAnchor, type MenuOption, type PanelLine } from '../ui/Menu';
 import { MessageLog } from '../ui/MessageLog';
 import { Renderer } from '../ui/Renderer';
 import { limbShortName, StatusBar } from '../ui/StatusBar';
@@ -40,7 +40,7 @@ import {
 type Mode =
   | { kind: 'normal' }
   | { kind: 'direction'; command: 'fight' }
-  | { kind: 'confirm'; target: Creature }
+  | { kind: 'confirm'; target: Creature } // a Yes/No menu is open (its callback lives in the Menu)
   | { kind: 'menu' } // an option menu is open in the overlay (its callback lives in the Menu)
   | { kind: 'panel' } // a read-only panel (inventory, character sheet, help)
   | { kind: 'game-over' };
@@ -65,6 +65,7 @@ const SPACE_DATA: SpaceJSON[] = [
 const HELP_LINES: PanelLine[] = [
   { text: 'Arrows        move (two arrows together = diagonal)' },
   { text: 'F + direction fight in that direction' },
+  { text: 'Enter         command menu (every command and its key)' },
   { text: 'w             wield a weapon (or bare hands)' },
   { text: 'i             inventory' },
   { text: 'C             character sheet' },
@@ -72,6 +73,27 @@ const HELP_LINES: PanelLine[] = [
   { text: 'f             fire (not yet available)' },
   { text: '?             this help' },
   { text: 'Esc           cancel a prompt or close a window' },
+];
+
+interface Command {
+  label: string;
+  key: string;
+  /** Not implemented yet: shown greyed out, picking it only logs a line. */
+  disabled?: boolean;
+}
+
+/** The Enter menu. Picking a row runs exactly what pressing its key would. */
+const COMMANDS: Command[] = [
+  { label: 'Wield', key: 'w' },
+  { label: 'Inventory', key: 'i' },
+  { label: 'Character sheet', key: 'C' },
+  { label: 'Fight in a direction', key: 'F' },
+  { label: 'Wait', key: '.' },
+  { label: 'Help', key: '?' },
+  { label: 'Wear', key: 'W', disabled: true },
+  { label: 'Fire', key: 'f', disabled: true },
+  { label: 'Quaff / use', key: 'q', disabled: true },
+  { label: 'Pick up', key: ',', disabled: true },
 ];
 
 /**
@@ -113,6 +135,7 @@ export class Game {
 
     window.addEventListener('resize', () => {
       if (this.renderer.resize()) this.render();
+      else this.menu.reposition();
     });
   }
 
@@ -141,7 +164,7 @@ export class Game {
     for (const off of this.unsubscribe) off();
     this.events = new EventBus<GameEvents>();
     this.unsubscribe = [
-      this.events.on('attack-prompted', ({ target }) => this.setMode({ kind: 'confirm', target })),
+      this.events.on('attack-prompted', ({ target }) => this.openConfirmMenu(target)),
       this.events.on('npc-menu', ({ npc }) => this.openNpcMenu(npc)),
       this.events.on('player-died', () => this.showDeathScreen()),
     ];
@@ -163,14 +186,16 @@ export class Game {
   }
 
   private promptText(): string | null {
-    switch (this.mode.kind) {
-      case 'direction':
-        return 'Attack in which direction? (arrows, Esc cancels)';
-      case 'confirm':
-        return `Really attack ${theName(this.mode.target)}? [y/n]`;
-      default:
-        return null;
-    }
+    return this.mode.kind === 'direction' ? 'Attack in which direction? (arrows, Esc cancels)' : null;
+  }
+
+  /** Anchor for a menu about `target`: beside its cell, never over it or the player. */
+  private anchorTo(target: { x: number; y: number }): () => MenuAnchor {
+    return () => {
+      const cell = this.renderer.cellRect(target.x, target.y);
+      const player = this.renderer.cellRect(this.state.player.x, this.state.player.y);
+      return { anchor: cell, avoid: [cell, player], gapX: cell.width, gapY: cell.height };
+    };
   }
 
   private handleDirection(direction: Direction): void {
@@ -184,8 +209,6 @@ export class Game {
         fightDirection(this.state, direction, this.events);
         break;
       case 'confirm':
-        this.setMode({ kind: 'normal' }); // any other key than y is "no"
-        break;
       case 'menu':
         // Up/Down move the cursor; sideways does nothing.
         if (direction === 'N') this.menu.handleKey('ArrowUp');
@@ -208,9 +231,6 @@ export class Game {
         this.setMode({ kind: 'normal' });
         break;
       case 'confirm':
-        this.setMode({ kind: 'normal' });
-        if (key === 'y' || key === 'Y') confirmAttack(this.state, mode.target, this.events);
-        break;
       case 'menu': {
         const result = this.menu.handleKey(key);
         if (result === 'cancel') this.closeMenu();
@@ -235,10 +255,16 @@ export class Game {
         this.setMode({ kind: 'direction', command: 'fight' });
         break;
       case 'f':
-        addMessage(this.state, 'You have nothing to fire.');
+      case 'W':
+      case 'q':
+      case ',':
+        addMessage(this.state, "You can't do that yet.");
         break;
       case '.':
         advanceTurn(this.state, this.events);
+        break;
+      case 'Enter':
+        this.openCommandMenu();
         break;
       case 'w':
         this.openWieldMenu();
@@ -274,13 +300,62 @@ export class Game {
       taken.add(letter);
       return { label, hotkey };
     });
-    this.menu.open(npc.name, options, (index) => {
+    this.menu.open(
+      npc.name,
+      options,
+      (index) => {
       const id = npc.interactions[index]!;
       // Close first: the interaction may itself open something (or kill the player).
       this.closeMenu();
       useInteraction(this.state, npc, id, this.events);
       this.render();
-    });
+      },
+      0,
+      undefined,
+      this.anchorTo(npc),
+    );
+    this.setMode({ kind: 'menu' });
+  }
+
+  private openConfirmMenu(target: Creature): void {
+    this.menu.open(
+      `Really attack ${theName(target)}?`,
+      [
+        { label: 'Yes, attack', hotkey: 'y' },
+        { label: 'No', hotkey: 'n' },
+      ],
+      (index) => {
+        this.closeMenu();
+        if (index === 0) confirmAttack(this.state, target, this.events);
+        this.render();
+      },
+      1, // default to No
+      'y / n, Esc to cancel',
+      this.anchorTo(target),
+    );
+    this.setMode({ kind: 'confirm', target });
+  }
+
+  private openCommandMenu(): void {
+    const options: MenuOption[] = COMMANDS.map((c) => ({
+      label: c.label,
+      hotkey: c.key,
+      keyHint: c.key,
+      disabled: c.disabled,
+      hint: c.disabled ? '(not yet)' : undefined,
+    }));
+    this.menu.open(
+      'Commands',
+      options,
+      (index) => {
+        this.closeMenu();
+        this.handleNormalKey(COMMANDS[index]!.key);
+        this.render();
+      },
+      -1,
+      'Key or Up/Down + Enter, Esc/Enter closes',
+      this.anchorTo(this.state.player),
+    );
     this.setMode({ kind: 'menu' });
   }
 
@@ -309,6 +384,8 @@ export class Game {
         this.render();
       },
       current,
+      undefined,
+      this.anchorTo(player),
     );
     this.setMode({ kind: 'menu' });
   }
@@ -376,6 +453,7 @@ export class Game {
     this.renderer.render(this.state);
     this.messageLog.render(this.state.messageLog);
     this.statusBar.render(this.state, this.promptText());
+    this.menu.reposition();
   }
 
   /**
