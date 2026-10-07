@@ -75,6 +75,7 @@ export function emitSound(
 
   if (kind !== 'gunshot' && !space.visible.has(from.x, from.y) && chebyshevDistance(state.player, from) <= radius) {
     addMessage(state, HEARD[kind]);
+    state.noisesHeard++;
   }
 }
 

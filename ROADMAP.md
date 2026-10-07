@@ -112,6 +112,14 @@ Original sketch (to reconcile with the above):
   alerts nearby faction members (rogueout has an alert-radius pattern to borrow). Witness reactions and
   fleeing (`cowardly`) come with it. `Factions.ts` from rogueout is the reference.
 
+### Mouse, travel and run (done)
+Click a cell to walk there (BFS over explored cells, closed doors opened in passing; an unexplored target gets the
+nearest known cell plus a short straight probe, `TRAVEL_PROBE_STEPS`). Click a person to walk up and talk or open
+their menu; click an adjacent creature to attack (or answer "which direction?"); click away from a menu to close it;
+menu rows highlight on hover and take clicks. `g` + direction runs (up to `RUN_MAX_STEPS`). A walk stops on: someone
+new in view, a hostile closing within `TRAVEL_DANGER_RADIUS`, damage, a heard scream, stepping on an item, entering or
+leaving a place, or any key or click. Reference: `../rogueout` AutoTravel.
+
 ### M5 — Multi-level buildings
 - The ground floor lives in the world map (see M2.5). Each *extra* floor (upstairs, basement) is its own
   `Space` file at the *same world coordinates* (`worldOrigin` = the building footprint), so the camera

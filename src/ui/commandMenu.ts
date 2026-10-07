@@ -28,6 +28,7 @@ export type CommandId =
   | 'sheet'
   | 'fight'
   | 'kick'
+  | 'run'
   | 'swap'
   | 'wait'
   | 'help'
@@ -63,6 +64,7 @@ export function buildCommandList(ctx: CommandContext): CommandRow[] {
     row('sheet', 'Character sheet', 'C', 'standard'),
     row('fight', 'Fight in a direction', 'F', 'standard'),
     row('kick', 'Kick', 'k', 'standard'),
+    row('run', 'Go in a direction', 'g', 'standard'),
     row('wait', 'Wait', '.', 'standard'),
     row('help', 'Help', '?', 'standard'),
   );

@@ -200,6 +200,12 @@ export class Menu {
         k.textContent = option.keyHint;
         row.appendChild(k);
       }
+      // The cursor follows the mouse, as it follows the arrow keys.
+      row.addEventListener('mouseenter', () => {
+        if (this.selected === i) return;
+        this.selected = i;
+        this.redraw();
+      });
       row.addEventListener('click', () => {
         this.selected = i;
         this.pick(i);

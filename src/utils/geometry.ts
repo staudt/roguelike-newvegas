@@ -32,6 +32,16 @@ export const DIRECTION_VECTORS: Record<Direction, Point> = {
   SW: { x: -1, y: 1 },
 };
 
+/** The compass direction of the single step from `from` toward `to` (their signs), or null when equal. */
+export function directionBetween(from: Point, to: Point): Direction | null {
+  const dx = Math.sign(to.x - from.x);
+  const dy = Math.sign(to.y - from.y);
+  for (const [name, v] of Object.entries(DIRECTION_VECTORS)) {
+    if (v.x === dx && v.y === dy) return name as Direction;
+  }
+  return null;
+}
+
 export function addPoints(a: Point, b: Point): Point {
   return { x: a.x + b.x, y: a.y + b.y };
 }

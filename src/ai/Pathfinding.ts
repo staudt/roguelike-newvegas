@@ -156,3 +156,62 @@ export function fleeStep(
   }
   return bestStep;
 }
+
+export interface PathSearch {
+  /** Steps (excluding `start`) to the first cell that satisfies `isGoal`, or null if none was reached. */
+  path: Point[] | null;
+  /** Steps to the reached cell nearest `near` (squared distance, earliest found on a tie); empty if that is `start`. */
+  nearest: Point[];
+}
+
+/**
+ * Breadth-first search for a whole walk, for click-to-travel. `canMove` decides each single step
+ * (so it can know about doors, creatures and what the player has explored). Also remembers the
+ * visited cell closest to `near`, which is where to head when the goal itself can't be reached.
+ * Bounded by `budget` expanded cells, so a huge world costs no more than a small one.
+ */
+export function searchPath(
+  start: Point,
+  isGoal: (p: Point) => boolean,
+  canMove: (from: Point, to: Point) => boolean,
+  near: Point,
+  budget: number,
+): PathSearch {
+  const cameFrom = new Map<number, number>();
+  const startKey = cellKey(start.x, start.y);
+  cameFrom.set(startKey, -1);
+  const sq = (p: Point): number => (p.x - near.x) ** 2 + (p.y - near.y) ** 2;
+
+  const walkBack = (p: Point): Point[] => {
+    const steps: Point[] = [];
+    let key = cellKey(p.x, p.y);
+    while (key !== startKey) {
+      steps.push(pointOf(key));
+      key = cameFrom.get(key)!;
+    }
+    return steps.reverse();
+  };
+
+  const queue: Point[] = [start];
+  let nearestPoint = start;
+  let nearestDist = sq(start);
+
+  for (let head = 0, expanded = 0; head < queue.length && expanded < budget; head++, expanded++) {
+    const current = queue[head]!;
+    for (const v of NEIGHBOURS) {
+      const next = { x: current.x + v.x, y: current.y + v.y };
+      const key = cellKey(next.x, next.y);
+      if (cameFrom.has(key) || !canMove(current, next)) continue;
+      cameFrom.set(key, cellKey(current.x, current.y));
+      if (isGoal(next)) return { path: walkBack(next), nearest: [] };
+      const d = sq(next);
+      if (d < nearestDist) {
+        nearestDist = d;
+        nearestPoint = next;
+      }
+      queue.push(next);
+    }
+  }
+
+  return { path: null, nearest: nearestPoint === start ? [] : walkBack(nearestPoint) };
+}

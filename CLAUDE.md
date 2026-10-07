@@ -69,6 +69,10 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
   noise alerts hostiles, kick/attack provoke, the red hostile ring, menus asking before attacking peacefuls.
 - **Wielded/alternate/readied**: `wieldItem`, `swapWeapons`, drop (`clearSlotsFor`), loadouts, inventory
   tags, command menu context, status bar.
+- **Travel / mouse / run** (`engine/Travel.ts` plans and judges; `Game.stepTravel` takes the steps on a timer; `g` and
+  clicks both feed it): anything new that should stop a walk (a new kind of alarm, hazard, event) belongs in
+  `travelInterruption`. Clicks route over explored cells only, closed doors are routable, and unexplored targets
+  get the nearest known cell plus `TRAVEL_PROBE_STEPS` straight on. A click never auto-attacks from a distance.
 - **Idle wandering** (`wander` in `AIScheduler`: animals roam, people stay within `NPC_WANDER_RADIUS` of `home`):
   every idle creature rolls the RNG each action, so a test that spends a turn with a scripted RNG needs a roll per
   idle creature, or an RNG that never wanders (`() => 0.999`).

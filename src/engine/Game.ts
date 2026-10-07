@@ -1,4 +1,5 @@
 import { limbCondition } from '../combat/Limbs';
+import { capitalize } from '../combat/Narration';
 import { theName, type Creature } from '../entities/Creature';
 import { createMonster } from '../entities/Monster';
 import { INTERACTION_LABELS, type Npc } from '../entities/Npc';
@@ -7,7 +8,8 @@ import { InputManager } from '../input/InputManager';
 import { addToStack, createItem, isUndroppable, itemLabel, type Item } from '../items/Item';
 import { readiedAmmoCount, wieldedGun } from '../items/Carrying';
 import { isWieldable, itemDef } from '../items/ItemData';
-import type { Direction } from '../utils/geometry';
+import { creatureAt } from '../entities/Creature';
+import { chebyshevDistance, directionBetween, type Direction, type Point } from '../utils/geometry';
 import type { ChunkJSON } from '../world/ChunkCodec';
 import { ChunkStreamer, parseChunkPath, type ChunkCoord } from '../world/ChunkStreamer';
 import type { ChunkedMap } from '../world/ChunkedMap';
@@ -20,9 +22,11 @@ import type { MessageGroup } from '../ui/messageGroups';
 import { PALETTE } from '../config/palette';
 import { Renderer } from '../ui/Renderer';
 import { limbShortName, StatusBar } from '../ui/StatusBar';
+import { TRAVEL_STEP_MS } from '../config/constants';
 import { EventBus, type GameEvents } from './EventBus';
 import { addGroundItem, groundItemsAt } from './GroundItems';
 import { kickDirection } from './Kick';
+import { planRun, planTravel, snapshotTravel, travelInterruption } from './Travel';
 import { dropItem, fireGun, pickUp, readyAmmo, useItem } from './Items';
 import {
   addMessage,
@@ -48,7 +52,7 @@ import {
  */
 type Mode =
   | { kind: 'normal' }
-  | { kind: 'direction'; command: 'fight' | 'fire' | 'kick' }
+  | { kind: 'direction'; command: 'fight' | 'fire' | 'kick' | 'run' }
   | { kind: 'animating' } // a shot tracer is playing; keys are swallowed
   | { kind: 'confirm'; target: Creature } // a Yes/No menu is open (its callback lives in the Menu)
   | { kind: 'menu' } // an option menu is open in the overlay (its callback lives in the Menu)
@@ -129,6 +133,9 @@ const HELP_LINES: PanelLine[] = [
   { text: 'Enter         command menu (every command and its key)' },
   { text: 'f + direction fire the wielded gun' },
   { text: 'k + direction kick (may knock the target back)' },
+  { text: 'g + direction go: walk that way until something stops you' },
+  { text: 'Click         walk there (stops when anything turns up); click someone to talk,' },
+  { text: '              or an adjacent creature to attack; click menu rows to pick' },
   { text: 'x             swap wielded and alternate weapon' },
   { text: ',             pick up' },
   { text: 'd             drop' },
@@ -169,6 +176,10 @@ export class Game {
   /** Message ranges per player input, so one action reads as one log line. UI-only. */
   private messageGroups: MessageGroup[] = [];
   private inputDepth = 0;
+  /** A click-to-travel or `g` walk in progress: the steps left, and who to bump into on arrival. */
+  private travel: { path: Point[]; interact: Npc | null } | null = null;
+  private travelTimer: number | null = null;
+  private readonly canvas: HTMLCanvasElement;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -176,6 +187,7 @@ export class Game {
     statusBarEl: HTMLElement,
     menuEl: HTMLElement,
   ) {
+    this.canvas = canvas;
     this.renderer = new Renderer(canvas);
     this.messageLog = new MessageLog(messageLogEl);
     this.statusBar = new StatusBar(statusBarEl);
@@ -189,6 +201,8 @@ export class Game {
       onDirection: (direction) => this.handleDirection(direction),
       onKey: (key) => this.handleKey(key),
     });
+
+    canvas.addEventListener('click', (event) => this.handleClick(event));
 
     window.addEventListener('resize', () => {
       if (this.renderer.resize()) this.render();
@@ -246,6 +260,7 @@ export class Game {
   }
 
   private async restart(): Promise<void> {
+    this.cancelTravel();
     this.menu.hide();
     this.cancelAnimations();
     this.state = this.buildState();
@@ -288,7 +303,7 @@ export class Game {
 
   private promptText(): string | null {
     if (this.mode.kind !== 'direction') return null;
-    const verb = { fire: 'Fire', kick: 'Kick', fight: 'Attack' }[this.mode.command];
+    const verb = { fire: 'Fire', kick: 'Kick', fight: 'Attack', run: 'Go' }[this.mode.command];
     return `${verb} in which direction? (arrows, Esc cancels)`;
   }
 
@@ -326,10 +341,12 @@ export class Game {
   }
 
   private handleDirection(direction: Direction): void {
+    this.cancelTravel();
     this.groupInput(() => this.handleDirectionNow(direction));
   }
 
   private handleKey(key: string): void {
+    this.cancelTravel();
     this.groupInput(() => this.handleKeyNow(key));
   }
 
@@ -343,6 +360,7 @@ export class Game {
         this.setMode({ kind: 'normal' });
         if (mode.command === 'fire') fireGun(this.state, direction, this.events);
         else if (mode.command === 'kick') kickDirection(this.state, direction, this.events);
+        else if (mode.command === 'run') this.startRun(direction);
         else fightDirection(this.state, direction, this.events);
         break;
       case 'confirm':
@@ -395,6 +413,9 @@ export class Game {
         break;
       case 'k':
         this.setMode({ kind: 'direction', command: 'kick' });
+        break;
+      case 'g':
+        this.setMode({ kind: 'direction', command: 'run' });
         break;
       case 'x':
         swapWeapons(this.state, this.events);
@@ -719,6 +740,149 @@ export class Game {
     this.playQueuedShots();
   }
 
+  // ---- mouse, click-to-travel and running ------------------------------------------------------
+
+  /** A click on the map. Menu rows take their own clicks; this is about the cells under the canvas. */
+  private handleClick(event: MouseEvent): void {
+    const rect = this.canvas.getBoundingClientRect();
+    const cell = this.renderer.camera.screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
+    this.clickCell(cell);
+  }
+
+  /** What a click on a map cell means in the current mode. Also on the debug bridge. */
+  private clickCell(cell: Point): void {
+    this.cancelTravel();
+    this.groupInput(() => {
+      const mode = this.mode;
+      switch (mode.kind) {
+        case 'normal':
+          this.clickMap(cell);
+          break;
+        case 'direction': {
+          // Answering "which direction?" with a click on a neighbouring cell; elsewhere cancels it.
+          const near = chebyshevDistance(this.state.player, cell) === 1;
+          const direction = near ? directionBetween(this.state.player, cell) : null;
+          if (direction) this.handleDirectionNow(direction);
+          else this.setMode({ kind: 'normal' });
+          break;
+        }
+        case 'confirm':
+        case 'menu':
+        case 'panel':
+          this.closeMenu(); // clicked away from the window
+          break;
+        default:
+          break; // animating, game-over
+      }
+      this.render();
+    });
+  }
+
+  private clickMap(cell: Point): void {
+    const result = planTravel(this.state, cell);
+    if ('refusal' in result) {
+      if (result.refusal) addMessage(this.state, result.refusal);
+      return;
+    }
+    const { path, interact } = result.plan;
+    if (path.length === 0) {
+      // Right beside whoever was clicked: act on them like walking into them.
+      const direction = directionBetween(this.state.player, cell);
+      if (direction) tryMovePlayer(this.state, direction, this.events);
+      return;
+    }
+    this.startTravel(path, interact);
+  }
+
+  /** `g` + direction: walk that way until something stops you. */
+  private startRun(direction: Direction): void {
+    const path = planRun(this.state, direction);
+    if (path.length === 0) {
+      addMessage(this.state, "You can't go that way.");
+      return;
+    }
+    this.startTravel(path, null);
+  }
+
+  private startTravel(path: Point[], interact: Npc | null): void {
+    this.travel = { path: [...path], interact };
+    this.stepTravel();
+  }
+
+  private cancelTravel(): void {
+    if (this.travelTimer !== null) window.clearTimeout(this.travelTimer);
+    this.travelTimer = null;
+    this.travel = null;
+  }
+
+  /**
+   * One step of a walk, then the next on a timer. After every step it asks whether anything
+   * significant changed (see `travelInterruption`); any key or click cancels it as well.
+   */
+  private stepTravel(): void {
+    this.travelTimer = null;
+    const travel = this.travel;
+    if (!travel) return;
+    if (this.state.gameOver || this.mode.kind !== 'normal') {
+      this.cancelTravel();
+      return;
+    }
+    const state = this.state;
+    this.groupInput(() => {
+      const player = state.player;
+      const next = travel.path[0];
+      const direction = next ? directionBetween(player, next) : null;
+      if (!next || !direction || chebyshevDistance(player, next) !== 1) {
+        this.finishTravel();
+        return;
+      }
+      const blocker = creatureAt(getActiveSpace(state), next.x, next.y);
+      if (blocker) {
+        addMessage(state, `${capitalize(theName(blocker))} is in the way. You stop.`);
+        this.cancelTravel();
+        this.render();
+        return;
+      }
+
+      const before = snapshotTravel(state);
+      const moved = tryMovePlayer(state, direction, this.events);
+      // A closed door opens instead of letting you through: the step is spent, the walk goes on.
+      if (player.x === next.x && player.y === next.y) travel.path.shift();
+      else if (!moved) {
+        this.cancelTravel();
+        this.render();
+        return;
+      }
+      this.render();
+      if (state.gameOver || this.state !== state || this.mode.kind !== 'normal') {
+        this.cancelTravel();
+        return;
+      }
+
+      const interruption = travelInterruption(state, before);
+      if (interruption) {
+        if (interruption.message) addMessage(state, interruption.message);
+        this.cancelTravel();
+        this.render();
+        return;
+      }
+      if (travel.path.length === 0) this.finishTravel();
+      else this.travelTimer = window.setTimeout(() => this.stepTravel(), TRAVEL_STEP_MS);
+    });
+  }
+
+  /** The walk is over. If it was heading for someone to talk to, do that now (their menu or line). */
+  private finishTravel(): void {
+    const interact = this.travel?.interact ?? null;
+    this.cancelTravel();
+    if (interact && getActiveSpace(this.state).npcs.includes(interact)) {
+      const near = chebyshevDistance(this.state.player, interact) === 1;
+      const direction = near ? directionBetween(this.state.player, interact) : null;
+      if (direction) tryMovePlayer(this.state, direction, this.events);
+    }
+    this.render();
+  }
+
   // ---- shot tracer animation ---------------------------------------------------------------
 
   private cancelAnimations(): void {
@@ -865,6 +1029,8 @@ export class Game {
         this.state.player.speed = n;
       },
       press: (key: string) => this.input.press(key),
+      click: (x: number, y: number) => this.clickCell({ x, y }),
+      travelling: () => this.travel !== null,
       chunkStats: () => this.streamer.stats(),
     };
 

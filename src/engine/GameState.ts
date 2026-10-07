@@ -91,6 +91,8 @@ export interface GameState {
   gameOver: boolean;
   /** The player's standing with each faction, -100..100. At or below `HOSTILE_STANDING` it attacks on sight. */
   standing: Standing;
+  /** How many unseen noises (a scream, a shout) the player has heard. A long walk stops when it grows. */
+  noisesHeard: number;
 }
 
 export function getActiveSpace(state: GameState): Space {
@@ -117,5 +119,6 @@ export function createGameState(
     balloons: [],
     gameOver: false,
     standing: startingStanding(),
+    noisesHeard: 0,
   };
 }

@@ -127,3 +127,18 @@ export const FLEE_SCREAM_CHANCE = 20;
 /** A provoked person with a gun backs off when the player is closer than this many cells... */
 export const GUN_KEEP_DISTANCE = 3;
 /** ...on a per-nerve percent of their actions (see `GUN_KITE_CHANCE`); otherwise they shoot, so a chase can't go on forever. */
+
+/** Milliseconds between steps of a click-to-travel or run, so a walk can be watched and interrupted. */
+export const TRAVEL_STEP_MS = 70;
+
+/** Cells a path search may expand when planning a walk: enough for a long way round a building, bounded for a huge world. */
+export const TRAVEL_NODE_BUDGET = 8000;
+
+/** Heading for somewhere never seen, the walk goes this many cells straight on past what is explored, then stops. */
+export const TRAVEL_PROBE_STEPS = 8;
+
+/** The most cells one `g` run covers. */
+export const RUN_MAX_STEPS = 60;
+
+/** A hostile that comes this close (Chebyshev) while walking interrupts the walk. */
+export const TRAVEL_DANGER_RADIUS = 5;
