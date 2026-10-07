@@ -16,7 +16,7 @@ describe('the ground height ladder', () => {
     expect(ROAD_LEVELS.map((l) => l.glyph)).toEqual(GROUND_LEVELS.map((l) => l.glyph));
   });
 
-  it('flat ground keeps its old overall tone under the new texture (a whisper, not a pattern)', () => {
+  it('flat ground keeps its old overall tone under a texture you can actually see', () => {
     const tone = (hex: string): number[] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
     const average = (v: { fg: string; bg: string }): number[] =>
       tone(v.fg).map((c, i) => (c + tone(v.bg)[i]!) / 2);
@@ -25,8 +25,12 @@ describe('the ground height ladder', () => {
     // The old flat ground was its background alone: #4a3826 (road: #3b3a37).
     average(flat).forEach((c, i) => expect(Math.abs(c - tone('#4a3826')[i]!)).toBeLessThanOrEqual(1));
     average(visualFor('road', 0)).forEach((c, i) => expect(Math.abs(c - tone('#3b3a37')[i]!)).toBeLessThanOrEqual(1));
-    // And the contrast between texture and ground stays slight.
-    tone(flat.fg).forEach((c, i) => expect(c - tone(flat.bg)[i]!).toBeLessThanOrEqual(16));
+    // The texture is visible (a clear gap between glyph and ground) without being loud.
+    tone(flat.fg).forEach((c, i) => {
+      const gap = c - tone(flat.bg)[i]!;
+      expect(gap).toBeGreaterThanOrEqual(20);
+      expect(gap).toBeLessThanOrEqual(40);
+    });
   });
 
   it('heights are clamped to the top rung', () => {
