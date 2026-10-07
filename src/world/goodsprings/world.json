@@ -80,7 +80,7 @@
       "id": "npc-1",
       "name": "Victor",
       "x": 13,
-      "y": 18,
+      "y": 16,
       "inventory": [
         "combat-knife"
       ],
@@ -102,8 +102,38 @@
     },
     {
       "defId": "ghoul",
-      "x": 49,
-      "y": 8
+      "x": 57,
+      "y": 5
+    },
+    {
+      "defId": "gecko",
+      "x": 2,
+      "y": 38
+    },
+    {
+      "defId": "gecko",
+      "x": 5,
+      "y": 39
+    },
+    {
+      "defId": "gecko",
+      "x": 2,
+      "y": 41
+    },
+    {
+      "defId": "brahmin",
+      "x": 21,
+      "y": 6
+    },
+    {
+      "defId": "radroach",
+      "x": 48,
+      "y": 37
+    },
+    {
+      "defId": "radroach",
+      "x": 60,
+      "y": 33
     }
   ],
   "transitions": [],
@@ -151,6 +181,15 @@
         "y": 23,
         "width": 8,
         "height": 7
+      }
+    },
+    {
+      "name": "Victor's Shack",
+      "rect": {
+        "x": 12,
+        "y": 33,
+        "width": 6,
+        "height": 5
       }
     }
   ],
