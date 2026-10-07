@@ -10,9 +10,9 @@ const CHUNKS = import.meta.glob<ChunkJSON>('../src/world/goodsprings/chunks/*.js
 });
 
 describe('the ground height ladder', () => {
-  it('has four rungs: textured flat ground, then dust, rock and ridge', () => {
+  it('has four rungs: two tones of one texture (flat, dust), then rock and ridge', () => {
     expect(MAX_GROUND_HEIGHT).toBe(3);
-    expect(GROUND_LEVELS.map((l) => l.glyph)).toEqual(['▒', '░', '▓', '█']);
+    expect(GROUND_LEVELS.map((l) => l.glyph)).toEqual(['▒', '▒', '▓', '█']);
     expect(ROAD_LEVELS.map((l) => l.glyph)).toEqual(GROUND_LEVELS.map((l) => l.glyph));
   });
 
@@ -26,11 +26,20 @@ describe('the ground height ladder', () => {
     average(flat).forEach((c, i) => expect(Math.abs(c - tone('#4a3826')[i]!)).toBeLessThanOrEqual(1));
     average(visualFor('road', 0)).forEach((c, i) => expect(Math.abs(c - tone('#3b3a37')[i]!)).toBeLessThanOrEqual(1));
     // The texture is visible (a clear gap between glyph and ground) without being loud.
-    tone(flat.fg).forEach((c, i) => {
-      const gap = c - tone(flat.bg)[i]!;
-      expect(gap).toBeGreaterThanOrEqual(20);
-      expect(gap).toBeLessThanOrEqual(40);
-    });
+    const gaps = tone(flat.fg).map((c, i) => c - tone(flat.bg)[i]!);
+    expect(Math.max(...gaps)).toBeGreaterThanOrEqual(40); // clearly visible in the strongest channel
+    gaps.forEach((g) => expect(g).toBeGreaterThanOrEqual(24));
+    expect(Math.max(...gaps)).toBeLessThanOrEqual(80); // but not loud
+  });
+
+  it('each rung is brighter overall than the one below, so height still reads at a glance', () => {
+    const lum = (hex: string): number => [1, 3, 5].reduce((n, i) => n + parseInt(hex.slice(i, i + 2), 16), 0);
+    for (const levels of [GROUND_LEVELS, ROAD_LEVELS]) {
+      // Average tone of the glyph cell (the shades cover about half, three quarters, or all of it).
+      const cover = [0.5, 0.5, 0.75, 1];
+      const tone = levels.map((l, i) => lum(l.fg) * cover[i]! + lum(l.bg) * (1 - cover[i]!));
+      for (let i = 1; i < tone.length; i++) expect(tone[i]!).toBeGreaterThan(tone[i - 1]!);
+    }
   });
 
   it('heights are clamped to the top rung', () => {

@@ -15,21 +15,21 @@ export interface GroundLevel {
 }
 
 export const GROUND_LEVELS: readonly GroundLevel[] = [
-  // 0 — flat ground: the old scrub texture, with fg and bg centred on the old flat colour (#4a3826),
-  // so the overall tone is unchanged. Widen or narrow the gap to make the texture louder or quieter.
-  { glyph: '▒', fg: '#5a4630', bg: '#3a2a1c' },
-  { glyph: '░', fg: '#c9ad73', bg: '#42311f' }, // 1 — rising dust
+  // 0 and 1 share the `▒` texture and differ only in colour: 0 is centred on the old flat colour
+  // (#4a3826), 1 is a clear step brighter. Widen or narrow the fg/bg gap to make it louder or quieter.
+  { glyph: '▒', fg: '#665037', bg: '#2e2015' }, // 0 — flat ground
+  { glyph: '▒', fg: '#7e6642', bg: '#4a3a26' }, // 1 — rising dust
   { glyph: '▓', fg: '#a37f41', bg: '#322313' }, // 2 — rocky rise
   { glyph: '█', fg: '#8a6a37', bg: '#2a1d0f' }, // 3 — ridge top, highest walkable ground
 ];
 
 /**
  * Road: the ground's own height glyphs in asphalt greys, so height reads exactly as on the desert
- * ground (`▒` at level 0, then `░ ▓ █`); only the colors say "paved".
+ * ground (`▒ ▒ ▓ █`); only the colors say "paved".
  */
 export const ROAD_LEVELS: readonly GroundLevel[] = [
-  { glyph: '▒', fg: '#494845', bg: '#2d2c29' }, // same idea, centred on the old flat road (#3b3a37)
-  { glyph: '░', fg: '#8d887d', bg: '#353431' },
+  { glyph: '▒', fg: '#53524f', bg: '#23221f' }, // centred on the old flat road (#3b3a37)
+  { glyph: '▒', fg: '#615f5a', bg: '#35332e' },
   { glyph: '▓', fg: '#736f66', bg: '#292825' },
   { glyph: '█', fg: '#66625a', bg: '#232220' },
 ];

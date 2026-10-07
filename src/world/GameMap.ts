@@ -47,7 +47,7 @@ export function isOpaque(map: MapGrid, x: number, y: number): boolean {
  * Can an actor standing at `from` step onto the adjacent `to`?
  *
  * The destination must be walkable, and — the terrain-height rule — if both cells are open ground
- * the step can climb or descend at most `MAX_STEP_HEIGHT_DELTA` rungs of the `▒ ░ ▓ █` ladder.
+ * the step can climb or descend at most `MAX_STEP_HEIGHT_DELTA` rungs of the `▒ ▒ ▓ █` ladder.
  * Hard barriers (`rock`/`wall`/void) are never passable regardless of height. Tiles that aren't
  * ground (floor, door) carry no meaningful height, so the delta check only applies ground-to-ground.
  */
