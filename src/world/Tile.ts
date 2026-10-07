@@ -110,11 +110,38 @@ export function baseGroundHeight(code: number): number {
   return code >= BASE_ROAD ? code - BASE_ROAD : code;
 }
 
+/** How much of its cell a texture glyph paints; the eye blends glyph and background by this much. */
+const GLYPH_COVERAGE: Record<string, number> = { '▒': 0.5, '▓': 0.75, '█': 1 };
+
+function mixHex(a: string, b: string, t: number): string {
+  const channel = (hex: string, at: number) => parseInt(hex.slice(1 + at * 2, 3 + at * 2), 16);
+  const out = [0, 1, 2].map((i) => Math.round(channel(a, i) * (1 - t) + channel(b, i) * t));
+  return '#' + out.map((v) => v.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * The colour a ground cell *looks* like: its glyph and background blended by the glyph's coverage. A
+ * rise drawn as a near-solid `▓` or `█` reads much lighter than its raw background, and an object
+ * standing there must match that, not the dark background underneath the texture.
+ */
+export function perceivedColour(level: GroundLevel): string {
+  return mixHex(level.bg, level.fg, GLYPH_COVERAGE[level.glyph] ?? 0);
+}
+
 function baseBackground(code: number): string {
   if (code >= BASE_FLOOR) return PALETTE.floorBg;
-  if (code >= BASE_ROAD) return ROAD_LEVELS[Math.min(ROAD_LEVELS.length - 1, code - BASE_ROAD)]!.bg;
-  return groundLevel(code).bg;
+  if (code >= BASE_ROAD) return perceivedColour(ROAD_LEVELS[Math.min(ROAD_LEVELS.length - 1, code - BASE_ROAD)]!);
+  return perceivedColour(groundLevel(code));
 }
+
+function luminance(hex: string): number {
+  const c = (at: number) => parseInt(hex.slice(1 + at * 2, 3 + at * 2), 16);
+  return 0.299 * c(0) + 0.587 * c(1) + 0.114 * c(2);
+}
+
+/** Keeps an object's glyph readable: on a background too close to its colour it is drawn dark instead. */
+const MIN_GLYPH_CONTRAST = 30;
+const DARK_GLYPH = '#1c140a';
 
 /** Resolves what to actually draw for a tile, folding in per-cell height for ground tiles and the base under objects. */
 export function visualFor(id: string, height: number): TileVisual {
@@ -126,7 +153,9 @@ export function visualFor(id: string, height: number): TileVisual {
     return { glyph: level.glyph, fg: level.fg, bg: level.bg };
   }
   if (def.overlay) {
-    return { glyph: def.glyph ?? '?', fg: def.fg ?? '#ffffff', bg: baseBackground(height) };
+    const bg = baseBackground(height);
+    const fg = def.fg ?? '#ffffff';
+    return { glyph: def.glyph ?? '?', fg: Math.abs(luminance(fg) - luminance(bg)) < MIN_GLYPH_CONTRAST ? DARK_GLYPH : fg, bg };
   }
   return { glyph: def.glyph ?? '?', fg: def.fg ?? '#ffffff', bg: def.bg ?? '#000000' };
 }
