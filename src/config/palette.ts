@@ -15,7 +15,9 @@ export interface GroundLevel {
 }
 
 export const GROUND_LEVELS: readonly GroundLevel[] = [
-  { glyph: '▒', fg: '#d9c48f', bg: '#4a3826' }, // 0 — sun-bleached flat (the old scrub texture, flat colors)
+  // 0 — flat ground: the old scrub texture, but fg and bg sit just either side of the old flat colour
+  // (#4a3826), so the average tone is unchanged and the texture only whispers.
+  { glyph: '▒', fg: '#503d2b', bg: '#443221' },
   { glyph: '░', fg: '#c9ad73', bg: '#42311f' }, // 1 — rising dust
   { glyph: '▓', fg: '#a37f41', bg: '#322313' }, // 2 — rocky rise
   { glyph: '█', fg: '#8a6a37', bg: '#2a1d0f' }, // 3 — ridge top, highest walkable ground
@@ -26,7 +28,7 @@ export const GROUND_LEVELS: readonly GroundLevel[] = [
  * ground (`▒` at level 0, then `░ ▓ █`); only the colors say "paved".
  */
 export const ROAD_LEVELS: readonly GroundLevel[] = [
-  { glyph: '▒', fg: '#9a958a', bg: '#3b3a37' },
+  { glyph: '▒', fg: '#403f3c', bg: '#363532' }, // same idea: averages the old flat road (#3b3a37)
   { glyph: '░', fg: '#8d887d', bg: '#353431' },
   { glyph: '▓', fg: '#736f66', bg: '#292825' },
   { glyph: '█', fg: '#66625a', bg: '#232220' },
