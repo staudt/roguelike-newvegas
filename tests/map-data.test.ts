@@ -116,7 +116,7 @@ describe('world.json + chunks places', () => {
       space.npcs.filter((n) => rectContains(place(name).rect, n)).map((n) => n.id).sort();
     expect(inside('Gas Station')).toEqual(['ringo']);
     expect(inside("Doc Mitchell's House")).toEqual(['doc-mitchell']);
-    expect(inside('General Store')).toEqual([]);
+    expect(inside('General Store')).toEqual(['npc-2']); // Chet
     expect(inside('Prospector Saloon')).toEqual(['sunny-smiles', 'trudy']);
     expect(inside('Goodspring Schoolhouse')).toEqual([]);
     // NOTE: Victor (npc-1) stands in the street at (13,16), not in Victor's Shack: likely a map mistake.
@@ -179,7 +179,7 @@ describe('world.json + chunks monsters', () => {
   it('places the expected wildlife', () => {
     const counts: Record<string, number> = {};
     for (const m of space.monsters) counts[m.defId] = (counts[m.defId] ?? 0) + 1;
-    expect(counts).toEqual({ gecko: 3, bloatfly: 1, radroach: 2, brahmin: 2, ghoul: 1 });
+    expect(counts).toEqual({ gecko: 3, bloatfly: 3, radroach: 2, brahmin: 2, ghoul: 1 });
   });
 
   it('every monster stands on a walkable, non-door tile reachable from playerStart (real canStep rule, doors opened)', () => {

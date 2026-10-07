@@ -85,15 +85,32 @@
         "combat-knife"
       ],
       "dialogue": [
-        "Howdy Partner!"
+        "Howdy Partner! May I say you look fit as a fiddle"
+      ]
+    },
+    {
+      "id": "npc-2",
+      "name": "Chet",
+      "x": 27,
+      "y": 5,
+      "inventory": [
+        "9mm-pistol",
+        {
+          "defId": "9mm-round",
+          "count": 12
+        }
+      ],
+      "ready": "9mm-round",
+      "dialogue": [
+        "Looking to buy some supplies?"
       ]
     }
   ],
   "monsters": [
     {
       "defId": "bloatfly",
-      "x": 41,
-      "y": 26
+      "x": 62,
+      "y": -10
     },
     {
       "defId": "brahmin",
@@ -134,6 +151,16 @@
       "defId": "radroach",
       "x": 60,
       "y": 33
+    },
+    {
+      "defId": "bloatfly",
+      "x": 55,
+      "y": -12
+    },
+    {
+      "defId": "bloatfly",
+      "x": 63,
+      "y": -12
     }
   ],
   "transitions": [],
