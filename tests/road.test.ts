@@ -15,7 +15,7 @@ describe('road tile', () => {
       shades.add(v.bg);
     }
     expect(shades.size).toBe(MAX_GROUND_HEIGHT + 1);
-    expect(visualFor('ground', 0).glyph).toBe(' ');
+    expect(visualFor('ground', 0).glyph).toBe('▒'); // flat ground carries the lightest texture
     expect(visualFor('road', 0).bg).not.toBe(visualFor('ground', 0).bg);
   });
 

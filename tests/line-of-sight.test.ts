@@ -31,17 +31,17 @@ describe('hasLineOfSight', () => {
 
   it('standing on a peak is not itself protection — a ridge between two peaks can still block', () => {
     const grid = createEmptyGrid(5, 1, 'ground');
-    setHeight(grid, 0, 0, 4);
-    setHeight(grid, 4, 0, 4);
-    // Interpolated sightline between two height-4 points is flat at 4. A ridge of height 4 is NOT
+    setHeight(grid, 0, 0, 3);
+    setHeight(grid, 4, 0, 3);
+    // Interpolated sightline between two height-3 points is flat at 3. A ridge of height 3 is NOT
     // taller than that (not > ), so by itself this should still be visible...
-    setHeight(grid, 2, 0, 4);
+    setHeight(grid, 2, 0, 3);
     expect(hasLineOfSight(grid, { x: 0, y: 0 }, { x: 4, y: 0 })).toBe(true);
     // ...but push the intervening cell one rung higher than both peaks and it blocks.
-    // (MAX_GROUND_HEIGHT is 4, so simulate "taller" by lowering the peaks instead.)
-    setHeight(grid, 0, 0, 2);
-    setHeight(grid, 4, 0, 2);
-    setHeight(grid, 2, 0, 4);
+    // (MAX_GROUND_HEIGHT is 3, so simulate "taller" by lowering the peaks instead.)
+    setHeight(grid, 0, 0, 1);
+    setHeight(grid, 4, 0, 1);
+    setHeight(grid, 2, 0, 3);
     expect(hasLineOfSight(grid, { x: 0, y: 0 }, { x: 4, y: 0 })).toBe(false);
   });
 

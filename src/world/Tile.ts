@@ -3,7 +3,7 @@ import { PALETTE, ROAD_LEVELS, groundLevel, type GroundLevel } from '../config/p
 /**
  * Tiles are deliberately plain data: walkability and opacity live here, not on the map. The one
  * exception is `ground` — its glyph and colors are *not* fixed, they're derived from the per-cell
- * height stored on the map (see `visualFor`), which is how the `. ░ ▒ ▓ █` elevation ladder works.
+ * height stored on the map (see `visualFor`), which is how the `▒ ░ ▓ █` elevation ladder works.
  */
 export interface TileDef {
   id: string;
@@ -63,7 +63,7 @@ export const TILES: Record<string, TileDef> = {
     id: 'floor',
     walkable: true,
     opaque: false,
-    glyph: '.',
+    glyph: ' ', // just the lamplit colour: no dots on the floor
     fg: PALETTE.floorFg,
     bg: PALETTE.floorBg,
   },

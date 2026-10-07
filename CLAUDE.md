@@ -26,8 +26,9 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
   a message and no turn. The UI only maps keys to engine calls.
 - One player input = one log line group (`Game.groupInput`). Log lines name the weapon and the limb.
 - Randomness always comes from the passed `RNG`, so tests can script it (`scriptedRNG` in `tests/helpers`).
-- Terrain: ground and road carry a height 0–4 (`tileIsGround`, never compare to `GROUND_TILE` directly).
-  Ground level 0 is a blank glyph, road reuses the ground's glyphs in greys, floor is `.`.
+- Terrain: ground and road carry a height 0–3 (`tileIsGround`, never compare to `GROUND_TILE` directly).
+  Ground level 0 is the light `▒` texture (then `░ ▓ █`), road reuses the ground's glyphs in greys, floor is a blank
+  glyph (colour only, no dots). The ladder is `GROUND_LEVELS` in `config/palette.ts`; stored map heights follow it.
 - `tsconfig` has `erasableSyntaxOnly` (no constructor parameter properties). `vite` is pinned to `^7`
   (Node 22.4).
 - Windows checkout has CRLF; the byte-for-byte map round-trip tests (`map-document`, `editor-items`) fail
