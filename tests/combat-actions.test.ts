@@ -170,7 +170,7 @@ describe('Doc Mitchell (real data): menu, heal, talk', () => {
   function docState() {
     const space = loadRealWorld();
     space.monsters = []; // deterministic: wildlife is not under test here
-    const player = createPlayer(25, 6); // directly west of Doc at (26,6)
+    const player = createPlayer(5, 15); // directly east of Doc at (4,15), inside his house
     const state = createGameState(player, { [space.id]: space }, space.id);
     const events = new EventBus<GameEvents>();
     const emitted: Array<{ name: string; payload: unknown }> = [];
@@ -185,7 +185,7 @@ describe('Doc Mitchell (real data): menu, heal, talk', () => {
     const { state, events, emitted, doc } = docState();
     expect(doc.interactions).toEqual(['talk', 'heal']);
 
-    const spent = tryMovePlayer(state, 'E', events, scriptedRNG([]));
+    const spent = tryMovePlayer(state, 'W', events, scriptedRNG([]));
 
     expect(spent).toBe(false);
     expect(emitted.map((e) => e.name)).toEqual(['npc-menu']);

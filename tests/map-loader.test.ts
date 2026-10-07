@@ -107,6 +107,8 @@ describe('loadSpace / serializeSpace round trip', () => {
   });
 });
 
+const GOODSPRINGS_PLACES = ['Gas Station', "Doc Mitchell's House", 'General Store', 'Prospector Saloon', 'Goodspring Schoolhouse', "Victor's Shack"];
+
 describe('loadWorld', () => {
   const meta = readWorldMeta();
 
@@ -118,7 +120,7 @@ describe('loadWorld', () => {
     expect(space.indoor).toBe(false);
     expect(space.npcs.map((n) => n.id)).toEqual(meta.npcs.map((n) => n.id));
     expect(space.monsters).toHaveLength(meta.monsters!.length);
-    expect(space.places.map((p) => p.name)).toEqual(["Prospector Saloon", "Doc Mitchell's House"]);
+    expect(space.places.map((p) => p.name)).toEqual(GOODSPRINGS_PLACES);
     expect(space.transitions).toEqual([]);
     expect((space.grid as ChunkedMap).chunkList()).toHaveLength(readWorldChunks().length);
   });
@@ -165,8 +167,8 @@ describe('real Goodsprings content: world.json + chunks', () => {
     expect(space.transitions).toEqual([]);
   });
 
-  it('has places: the Prospector Saloon and Doc Mitchell House', () => {
-    expect(space.places.map((p) => p.name)).toEqual(["Prospector Saloon", "Doc Mitchell's House"]);
+  it('has the six places: gas station, Doc Mitchell House, general store, saloon, schoolhouse, Victor shack', () => {
+    expect(space.places.map((p) => p.name)).toEqual(GOODSPRINGS_PLACES);
   });
 
   it('documents a playerStart on walkable ground', () => {

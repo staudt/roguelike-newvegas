@@ -142,22 +142,23 @@ describe('tryMovePlayer / advanceTurn — bump and turn-cost rules', () => {
 });
 
 describe('tryMovePlayer — the Prospector Saloon on the real merged map', () => {
+  // The saloon's door is on its south wall at (38,9); the street runs below it.
   function buildWorldState(): { state: GameState; events: EventBus<GameEvents> } {
     const world = loadRealWorld();
     world.monsters = []; // deterministic: wildlife is not under test here
-    // Two tiles east of the saloon's east door at (16,12), on open street, facing west.
-    const state = createGameState(createPlayer(18, 12), { world }, 'world');
+    // Two tiles south of the saloon's door at (38,9), on open street, facing north.
+    const state = createGameState(createPlayer(38, 11), { world }, 'world');
     return { state, events: new EventBus<GameEvents>() };
   }
 
   it('the door starts closed; bumping it opens it, costs a turn and leaves you outside', () => {
     const { state, events } = buildWorldState();
-    expect(tryMovePlayer(state, 'W', events)).toBe(true); // (17,12), street
-    expect(getTileId(state.spaces.world!.grid, 16, 12)).toBe('door');
+    expect(tryMovePlayer(state, 'N', events)).toBe(true); // (38,10), street
+    expect(getTileId(state.spaces.world!.grid, 38, 9)).toBe('door');
 
-    expect(tryMovePlayer(state, 'W', events)).toBe(true); // bump the door
-    expect(getTileId(state.spaces.world!.grid, 16, 12)).toBe('openDoor');
-    expect(state.player).toMatchObject({ x: 17, y: 12 });
+    expect(tryMovePlayer(state, 'N', events)).toBe(true); // bump the door
+    expect(getTileId(state.spaces.world!.grid, 38, 9)).toBe('openDoor');
+    expect(state.player).toMatchObject({ x: 38, y: 10 });
     expect(state.messageLog).toEqual(['You open the door.']);
     expect(state.turnCount).toBe(2);
   });
@@ -167,13 +168,13 @@ describe('tryMovePlayer — the Prospector Saloon on the real merged map', () =>
     const spaceChanges: string[] = [];
     events.on('space-changed', (p) => spaceChanges.push(p.spaceId));
 
-    tryMovePlayer(state, 'W', events); // (17,12)
-    tryMovePlayer(state, 'W', events); // open the door
-    expect(tryMovePlayer(state, 'W', events)).toBe(true); // onto the door cell (16,12), inside the rect
-    expect(state.player).toMatchObject({ x: 16, y: 12 });
+    tryMovePlayer(state, 'N', events); // (38,10)
+    tryMovePlayer(state, 'N', events); // open the door
+    expect(tryMovePlayer(state, 'N', events)).toBe(true); // onto the door cell (38,9), inside the rect
+    expect(state.player).toMatchObject({ x: 38, y: 9 });
     expect(state.messageLog).toEqual(['You open the door.', 'You enter Prospector Saloon.']);
 
-    expect(tryMovePlayer(state, 'W', events)).toBe(true); // (15,12), further in: no new message
+    expect(tryMovePlayer(state, 'N', events)).toBe(true); // (38,8), further in: no new message
     expect(state.messageLog).toHaveLength(2);
     expect(state.activeSpaceId).toBe('world');
     expect(spaceChanges).toEqual([]);
@@ -181,14 +182,14 @@ describe('tryMovePlayer — the Prospector Saloon on the real merged map', () =>
 
   it('walking back out says "You leave" exactly once', () => {
     const { state, events } = buildWorldState();
-    for (const d of ['W', 'W', 'W', 'W'] as const) tryMovePlayer(state, d, events); // ends at (15,12)
+    for (const d of ['N', 'N', 'N', 'N'] as const) tryMovePlayer(state, d, events); // ends at (38,8)
     state.messageLog.length = 0;
 
-    tryMovePlayer(state, 'E', events); // (16,12) door cell, still inside the rect
+    tryMovePlayer(state, 'S', events); // (38,9) door cell, still inside the rect
     expect(state.messageLog).toEqual([]);
-    tryMovePlayer(state, 'E', events); // (17,12), outside
+    tryMovePlayer(state, 'S', events); // (38,10), outside
     expect(state.messageLog).toEqual(['You leave Prospector Saloon.']);
-    tryMovePlayer(state, 'E', events);
+    tryMovePlayer(state, 'S', events);
     expect(state.messageLog).toHaveLength(1);
   });
 
@@ -196,13 +197,15 @@ describe('tryMovePlayer — the Prospector Saloon on the real merged map', () =>
     const { state, events } = buildWorldState();
     const menus: string[] = [];
     events.on('npc-menu', (p) => menus.push(p.npc.id));
-    for (const d of ['W', 'W', 'W', 'W', 'W'] as const) tryMovePlayer(state, d, events); // (14,12)
-    expect(state.player).toMatchObject({ x: 14, y: 12 });
+    const noWander = () => 0.999; // nobody strolls off while we walk
+    // door (38,9), in to (38,8), then across the south room to (35,7), just below Trudy at (35,6).
+    for (const d of ['N', 'N', 'N', 'N', 'NW', 'W', 'W'] as const) tryMovePlayer(state, d, events, noWander);
+    expect(state.player).toMatchObject({ x: 35, y: 7 });
     const turns = state.turnCount;
     state.messageLog.length = 0;
 
-    expect(tryMovePlayer(state, 'W', events)).toBe(false); // Trudy at (13,12)
-    expect(state.player).toMatchObject({ x: 14, y: 12 });
+    expect(tryMovePlayer(state, 'N', events, noWander)).toBe(false); // Trudy at (35,6)
+    expect(state.player).toMatchObject({ x: 35, y: 7 });
     expect(state.turnCount).toBe(turns);
     expect(state.balloons).toHaveLength(1);
     expect(state.balloons[0]!.entityId).toBe('trudy');
@@ -212,7 +215,7 @@ describe('tryMovePlayer — the Prospector Saloon on the real merged map', () =>
 
   it('each step and each door-opening costs exactly one turn', () => {
     const { state, events } = buildWorldState();
-    for (const d of ['W', 'W', 'W'] as const) tryMovePlayer(state, d, events);
+    for (const d of ['N', 'N', 'N'] as const) tryMovePlayer(state, d, events);
     expect(state.turnCount).toBe(3);
   });
 });

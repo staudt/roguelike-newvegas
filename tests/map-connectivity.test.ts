@@ -43,7 +43,6 @@ describe('world.json + chunks connectivity (doors open when bumped)', () => {
   const start = readWorldMeta().playerStart!;
   const opened = openAllDoors(loadRealWorld().grid);
   const reachable = reachableFrom(opened, start);
-  const closedReach = reachableFrom(space.grid, start);
 
   it('reaches every NPC from the player start, respecting the height-step rule', () => {
     expect(space.npcs.length).toBeGreaterThan(0);
@@ -64,8 +63,8 @@ describe('world.json + chunks connectivity (doors open when bumped)', () => {
     for (const m of space.monsters) expect(reachable.has(`${m.x},${m.y}`), m.id).toBe(true);
   });
 
-  it('reaches every walkable interior cell of both buildings once the doors are open', () => {
-    expect(space.places).toHaveLength(2);
+  it('reaches every walkable interior cell of every building once the doors are open', () => {
+    expect(space.places).toHaveLength(6);
     for (const place of space.places) {
       let cells = 0;
       for (let y = place.rect.y; y < place.rect.y + place.rect.height; y++) {
@@ -79,23 +78,32 @@ describe('world.json + chunks connectivity (doors open when bumped)', () => {
     }
   });
 
+  /** The player starts inside Doc's house, so "sealed" is judged from a street cell outside every building. */
+  const STREET = { x: 9, y: 15 };
+
+  it('the street start used for the sealing tests is open ground outside every building', () => {
+    expect(isWalkable(space.grid, STREET.x, STREET.y)).toBe(true);
+    expect(space.places.some((p) => rectContains(p.rect, STREET))).toBe(false);
+    expect(reachableFrom(opened, STREET).has(`${start.x},${start.y}`)).toBe(true);
+  });
+
   it('keeps each building sealed while its door is closed: the way in is only through the door', () => {
-    const trudy = space.npcs.find((n) => n.id === 'trudy')!;
-    const doc = space.npcs.find((n) => n.id === 'doc-mitchell')!;
-    expect(closedReach.has(`${trudy.x},${trudy.y}`)).toBe(false);
-    expect(closedReach.has(`${doc.x},${doc.y}`)).toBe(false);
+    const fromStreet = reachableFrom(space.grid, STREET);
     for (const place of space.places) {
+      const interior: string[] = [];
       for (let y = place.rect.y + 1; y < place.rect.y + place.rect.height - 1; y++) {
         for (let x = place.rect.x + 1; x < place.rect.x + place.rect.width - 1; x++) {
-          expect(closedReach.has(`${x},${y}`), `${place.name} ${x},${y}`).toBe(false);
+          if (isWalkable(space.grid, x, y)) interior.push(`${x},${y}`);
         }
       }
-      // And no walkable cell of the place's ring is reachable either (closed doors are not walkable).
-      const inside = [...closedReach].filter((k) => {
+      expect(interior.length, place.name).toBeGreaterThan(4);
+      for (const k of interior) expect(fromStreet.has(k), `${place.name} ${k}`).toBe(false);
+      // And no walkable cell of the place's rect is reachable either (closed doors are not walkable).
+      const inside = [...fromStreet].filter((k) => {
         const [x, y] = k.split(',').map(Number) as [number, number];
         return rectContains(place.rect, { x, y });
       });
-      expect(inside).toEqual([]);
+      expect(inside, place.name).toEqual([]);
     }
   });
 
@@ -105,11 +113,16 @@ describe('world.json + chunks connectivity (doors open when bumped)', () => {
     for (let y = b.y; y < b.y + b.height; y++) {
       for (let x = b.x; x < b.x + b.width; x++) if (getTileId(sealed, x, y) === 'openDoor') setTileId(sealed, x, y, 'wall');
     }
-    const r = reachableFrom(sealed, start);
-    const trudy = space.npcs.find((n) => n.id === 'trudy')!;
-    const doc = space.npcs.find((n) => n.id === 'doc-mitchell')!;
-    expect(r.has(`${trudy.x},${trudy.y}`)).toBe(false);
-    expect(r.has(`${doc.x},${doc.y}`)).toBe(false);
+    const r = reachableFrom(sealed, STREET);
+    for (const place of space.places) {
+      const interior: string[] = [];
+      for (let y = place.rect.y + 1; y < place.rect.y + place.rect.height - 1; y++) {
+        for (let x = place.rect.x + 1; x < place.rect.x + place.rect.width - 1; x++) {
+          if (isWalkable(sealed, x, y)) interior.push(`${x},${y}`);
+        }
+      }
+      for (const k of interior) expect(r.has(k), `${place.name} ${k}`).toBe(false);
+    }
   });
 
   it('does not consider every tile trivially reachable (sanity: the void beyond the map is excluded)', () => {
