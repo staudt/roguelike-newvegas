@@ -228,7 +228,8 @@ describe('wielding guns and readying ammunition', () => {
     const gun = s.find('9mm-pistol');
     expect(wieldItem(s.state, gun.id, s.events, QUIET)).toBe(true);
     expect(s.player.wielded).toBe(gun.id);
-    expect(s.state.messageLog).toEqual(['You are now wielding the 9mm pistol.']);
+    // Wielding a gun readies its ammunition too (see ammo-autoready.test).
+    expect(s.state.messageLog).toEqual(['You are now wielding the 9mm pistol.', 'You ready 24 9mm rounds.']);
   });
 
   it('ammunition and stimpaks cannot be wielded (free refusal)', () => {

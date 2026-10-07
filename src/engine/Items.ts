@@ -3,6 +3,7 @@ import { addToStack, isUndroppable, itemLabel, itemWithArticle } from '../items/
 import { itemDef } from '../items/ItemData';
 import { DIRECTION_VECTORS, type Direction } from '../utils/geometry';
 import { defaultRNG, type RNG } from '../utils/RNG';
+import { rememberAmmo } from './Ammo';
 import { fireProjectile } from './Combat';
 import type { EventBus, GameEvents } from './EventBus';
 import { addMessage, getActiveSpace, type GameState } from './GameState';
@@ -129,6 +130,7 @@ export function readyAmmo(
     return false;
   }
   player.readied = item.id;
+  rememberAmmo(state, item);
   addMessage(state, `You ready ${itemLabel(item)}.`);
   return false;
 }

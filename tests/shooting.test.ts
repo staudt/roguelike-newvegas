@@ -5,7 +5,7 @@ import { resolveShot } from '../src/combat/CombatResolver';
 import { createLimbs } from '../src/combat/Limbs';
 import { GUN_NOISE_RADIUS } from '../src/config/constants';
 import type { GameEvents } from '../src/engine/EventBus';
-import { fireGun, readyAmmo } from '../src/engine/Items';
+import { fireGun } from '../src/engine/Items';
 import { wieldItem } from '../src/engine/TurnManager';
 import { createMonster, type Monster } from '../src/entities/Monster';
 import { createNpc } from '../src/entities/Npc';
@@ -345,9 +345,8 @@ describe('fireGun', () => {
     const a = buildArena({ width: 6, height: 1, player: { x: 0, y: 0 }, monsters: [gecko] });
     const p = a.state.player;
     wieldItem(a.state, p.inventory.find((i) => i.defId === '9mm-pistol')!.id, a.events, ALWAYS_MISS);
-    fireGun(a.state, 'E', a.events, ALWAYS_MISS);
-    expect(a.state.messageLog.at(-1)).toBe('You have no ammunition readied. (Press Q.)');
-    readyAmmo(a.state, p.inventory.find((i) => i.defId === '9mm-round')!.id);
+    // Wielding readied the rounds already: no separate Q needed.
+    expect(p.readied).toBe(p.inventory.find((i) => i.defId === '9mm-round')!.id);
     expect(fireGun(a.state, 'E', a.events, ALWAYS_HIT)).toBe(true);
     expect(gecko.hp).toBeLessThan(12);
   });

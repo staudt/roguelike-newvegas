@@ -10,6 +10,7 @@ import { isWieldable, itemDef } from '../items/ItemData';
 import { addPoints, type Direction, DIRECTION_VECTORS } from '../utils/geometry';
 import { defaultRNG, type RNG } from '../utils/RNG';
 import { canStep, getTileId, setTileId } from '../world/GameMap';
+import { readyAmmoForWielded } from './Ammo';
 import { playerAttacks } from './Combat';
 import { describeGroundHere } from './GroundItems';
 import type { EventBus, GameEvents } from './EventBus';
@@ -235,6 +236,7 @@ export function wieldItem(
     rememberAlternate(state, item.id);
     state.player.wielded = item.id;
     addMessage(state, `You are now wielding the ${itemDef(item.defId).name}.`);
+    readyAmmoForWielded(state);
   }
 
   advanceTurn(state, events, rng);
@@ -268,6 +270,7 @@ export function swapWeapons(
   }
   [p.wielded, p.alternate] = [p.alternate, p.wielded];
   addMessage(state, `You are now wielding ${p.wielded === null ? 'nothing' : `the ${nameOf(p.wielded)}`}. (Alternate: ${nameOf(p.alternate)}.)`);
+  readyAmmoForWielded(state);
   advanceTurn(state, events, rng);
   return true;
 }

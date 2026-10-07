@@ -68,7 +68,9 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
   `emitSound`. New monsters need a faction and temperament; named NPCs get theirs in `NpcData`. Crowding penalty counts adjacent hostiles,
   noise alerts hostiles, kick/attack provoke, the red hostile ring, menus asking before attacking peacefuls.
 - **Wielded/alternate/readied**: `wieldItem`, `swapWeapons`, drop (`clearSlotsFor`), loadouts, inventory
-  tags, command menu context, status bar.
+  tags, command menu context, status bar. Wielding a gun auto-readies ammunition (`readyAmmoForWielded` in
+  `engine/Ammo.ts`: the kind last readied with that gun, `player.lastAmmo`, else the first that fits; a melee
+  weapon leaves `readied` alone), so any new way to take up a weapon should call it.
 - **Travel / mouse / run** (`engine/Travel.ts` plans and judges; `Game.stepTravel` takes the steps on a timer; `g` and
   clicks both feed it): anything new that should stop a walk (a new kind of alarm, hazard, event) belongs in
   `travelInterruption`. Clicks route over explored cells only, closed doors are routable, and unexplored targets

@@ -120,6 +120,9 @@ menu rows highlight on hover and take clicks. `g` + direction runs (up to `RUN_M
 new in view (peacefuls never stop it), a hostile closing within `TRAVEL_DANGER_RADIUS`, damage, a heard scream, stepping on an item, entering or
 leaving a place, or any key or click. Reference: `../rogueout` AutoTravel.
 
+Also done: right-click opens the command menu (and backs out of any open menu or prompt); wielding or swapping to a
+gun readies its ammunition automatically (the kind last used with that gun, else the first that fits).
+
 ### M5 — Multi-level buildings
 - The ground floor lives in the world map (see M2.5). Each *extra* floor (upstairs, basement) is its own
   `Space` file at the *same world coordinates* (`worldOrigin` = the building footprint), so the camera

@@ -134,6 +134,7 @@ const HELP_LINES: PanelLine[] = [
   { text: 'f + direction fire the wielded gun' },
   { text: 'k + direction kick (may knock the target back)' },
   { text: 'g + direction go: walk that way until something stops you' },
+  { text: 'Right-click   the command menu (same as Enter)' },
   { text: 'Click         walk there (stops when anything turns up); click someone to talk,' },
   { text: '              or an adjacent creature to attack; click menu rows to pick' },
   { text: 'x             swap wielded and alternate weapon' },
@@ -203,6 +204,10 @@ export class Game {
     });
 
     canvas.addEventListener('click', (event) => this.handleClick(event));
+    canvas.addEventListener('contextmenu', (event) => {
+      event.preventDefault(); // no browser menu over the map: right-click is the Enter menu
+      this.rightClick();
+    });
 
     window.addEventListener('resize', () => {
       if (this.renderer.resize()) this.render();
@@ -770,6 +775,29 @@ export class Game {
         case 'menu':
         case 'panel':
           this.closeMenu(); // clicked away from the window
+          break;
+        default:
+          break; // animating, game-over
+      }
+      this.render();
+    });
+  }
+
+  /** Right-click is the Enter key: open the command menu, or back out of whatever is open. */
+  private rightClick(): void {
+    this.cancelTravel();
+    this.groupInput(() => {
+      switch (this.mode.kind) {
+        case 'normal':
+          this.openCommandMenu();
+          break;
+        case 'direction':
+          this.setMode({ kind: 'normal' });
+          break;
+        case 'confirm':
+        case 'menu':
+        case 'panel':
+          this.closeMenu();
           break;
         default:
           break; // animating, game-over
