@@ -3,8 +3,7 @@ import { PALETTE } from '../config/palette';
 import type { GameState, GroundItem, Space } from '../engine/GameState';
 import { getActiveSpace } from '../engine/GameState';
 import { rectContains, type Rect } from '../utils/geometry';
-import { visualAt } from '../world/GameMap';
-import { VOID_TILE, tileIdOf } from '../world/Tile';
+import { VOID_TILE, tileIdOf, visualFor } from '../world/Tile';
 import { itemDef } from '../items/ItemData';
 import { drawBalloon } from './Balloon';
 import { Camera } from './Camera';
@@ -160,7 +159,8 @@ export class Renderer {
   ): void {
     const grid = space.grid;
     const tileId = tileIdOf(grid.getTile(worldX, worldY));
-    const visual = visualAt(grid, worldX, worldY);
+    const height = grid.getHeight(worldX, worldY);
+    const visual = visualFor(tileId, height);
     const glyph = isConnectedWall(tileId) ? wallGlyph(grid, worldX, worldY) : visual.glyph;
 
     const screenX = sx * this.camera.cellW;

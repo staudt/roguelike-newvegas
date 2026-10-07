@@ -16,7 +16,7 @@ export interface TileDef {
   glyph?: string;
   fg?: string;
   bg?: string;
-  /** Draw on whatever ground surrounds the cell (a rock on a hill sits on the hill's colour). */
+  /** Like ground and road, the background follows the cell's own stored height (a rock on a hill sits on the hill's colour). */
   bgFromGround?: boolean;
 }
 
@@ -83,10 +83,7 @@ export interface TileVisual {
   bg: string;
 }
 
-/**
- * Resolves what to actually draw for a tile, folding in per-cell height for ground tiles. For a tile
- * that sits on the ground (`bgFromGround`, a rock) `height` is the height of the ground around it.
- */
+/** Resolves what to actually draw for a tile, folding in per-cell height for ground tiles and rocks. */
 export function visualFor(id: string, height: number): TileVisual {
   const def = tileDef(id);
   if (def.isGround) {
