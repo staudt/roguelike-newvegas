@@ -3,8 +3,8 @@
   "id": "world",
   "name": "Goodsprings",
   "playerStart": {
-    "x": 18,
-    "y": 24
+    "x": 4,
+    "y": 13
   },
   "npcs": [
     {
@@ -42,9 +42,7 @@
           "defId": "9mm-round",
           "count": 8
         }
-      ],
-      "wield": "9mm-pistol",
-      "ready": "9mm-round"
+      ]
     },
     {
       "id": "trudy",
@@ -75,39 +73,37 @@
       "inventory": [
         "stimpak",
         "stimpak",
-        "stimpak",
-        "combat-knife"
-      ],
-      "wield": "combat-knife"
+        "stimpak"
+      ]
     },
     {
       "id": "npc-1",
-      "name": "New NPC",
-      "x": 36,
-      "y": 20,
+      "name": "Victor",
+      "x": 13,
+      "y": 18,
       "inventory": [
         "combat-knife"
       ],
       "dialogue": [
-        ""
+        "Howdy Partner!"
       ]
     }
   ],
   "monsters": [
     {
       "defId": "bloatfly",
-      "x": 36,
-      "y": 16
+      "x": 41,
+      "y": 26
     },
     {
       "defId": "brahmin",
-      "x": 20,
-      "y": 22
+      "x": 16,
+      "y": 9
     },
     {
       "defId": "ghoul",
-      "x": 24,
-      "y": 14
+      "x": 18,
+      "y": 8
     }
   ],
   "transitions": [],
@@ -147,18 +143,27 @@
         "width": 9,
         "height": 7
       }
+    },
+    {
+      "name": "Goodspring Schoolhouse",
+      "rect": {
+        "x": 0,
+        "y": 23,
+        "width": 8,
+        "height": 7
+      }
     }
   ],
   "items": [
     {
       "defId": "stimpak",
-      "x": 18,
-      "y": 22
+      "x": 30,
+      "y": 24
     },
     {
       "defId": "9mm-round",
-      "x": 19,
-      "y": 22,
+      "x": 22,
+      "y": 24,
       "count": 12
     },
     {
@@ -170,6 +175,11 @@
       "defId": "stimpak",
       "x": 14,
       "y": 13
+    },
+    {
+      "defId": "combat-knife",
+      "x": 28,
+      "y": 24
     }
   ]
 }

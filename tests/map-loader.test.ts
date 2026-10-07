@@ -171,7 +171,7 @@ describe('real Goodsprings content: world.json + chunks', () => {
 
   it('documents a playerStart on walkable ground', () => {
     const start = meta.playerStart!;
-    expect(start).toEqual({ x: 18, y: 24 });
+    expect(start).toEqual({ x: 4, y: 13 });
     expect(isWalkable(space.grid, start.x, start.y)).toBe(true);
   });
 });
