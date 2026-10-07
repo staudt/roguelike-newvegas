@@ -201,7 +201,7 @@ describe('Doc Mitchell (real data): menu, heal, talk', () => {
     state.player.hp = 3;
     for (const l of state.player.limbs) l.hp = 0;
 
-    const spent = useInteraction(state, doc, 'heal', events, scriptedRNG([]));
+    const spent = useInteraction(state, doc, 'heal', events, () => 0.999 /* the turn passes; nobody wanders */);
 
     expect(spent).toBe(true);
     expect(state.player.hp).toBe(state.player.maxHp);

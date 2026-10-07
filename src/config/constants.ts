@@ -53,6 +53,12 @@ export const MAX_ACTIONS_PER_TURN = 8;
 /** Percent chance per action that an idle peaceful creature (a brahmin) takes a step. */
 export const PEACEFUL_WANDER_CHANCE = 20;
 
+/** Percent chance per action that an idle person takes a step: just enough that they are not statues. */
+export const NPC_WANDER_CHANCE = 8;
+
+/** An idle person never strays more than this many cells (Chebyshev) from where the map put them. */
+export const NPC_WANDER_RADIUS = 3;
+
 /** Budget for path searches — enough to route round a building, small enough to run every turn. */
 export const PATH_NODE_BUDGET = 600;
 

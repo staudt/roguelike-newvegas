@@ -5,6 +5,8 @@ import {
   LOSE_TRACK_FACTOR,
   MAX_ACTIONS_PER_TURN,
   NORMAL_SPEED,
+  NPC_WANDER_CHANCE,
+  NPC_WANDER_RADIUS,
   PEACEFUL_WANDER_CHANCE,
   SIM_RADIUS,
 } from '../config/constants';
@@ -71,6 +73,7 @@ export function runCreatureTurns(state: GameState, rng: RNG, events: EventBus<Ga
       } else if (!joinsTrouble(state, creature)) {
         if (creature.alarm === 'pending') relayAlarm(state, creature);
         else if (creature.investigate) investigateNoise(state, creature, occupancy);
+        else wander(state, creature, rng, occupancy);
       }
     }
 
@@ -406,14 +409,18 @@ function actWithGun(
   return true;
 }
 
-/** Peaceful creatures (a brahmin) drift about now and then; they never leave their space. */
+/**
+ * Idle creatures drift about now and then; they never leave their space. Animals roam freely; a
+ * person keeps within a few cells of home, so Doc is still by his bed and nobody wanders out of town.
+ */
 function wander(state: GameState, creature: Creature, rng: RNG, occupancy: Occupancy): void {
-  if (randomInt(rng, 1, 100) > PEACEFUL_WANDER_CHANCE) return;
+  if (randomInt(rng, 1, 100) > (creature.kind === 'npc' ? NPC_WANDER_CHANCE : PEACEFUL_WANDER_CHANCE)) return;
 
   const space = getActiveSpace(state);
   const v = STEP_VECTORS[randomInt(rng, 0, STEP_VECTORS.length - 1)]!;
   const to = { x: creature.x + v.x, y: creature.y + v.y };
 
   if (!canStep(space.grid, creature, to) || isOccupied(state, occupancy, to.x, to.y)) return;
+  if (creature.kind === 'npc' && chebyshevDistance(to, creature.home) > NPC_WANDER_RADIUS) return;
   moveTo(occupancy, creature, to.x, to.y);
 }

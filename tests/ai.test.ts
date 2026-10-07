@@ -322,10 +322,10 @@ describe('peaceful monsters', () => {
 });
 
 describe('NPCs in the scheduler', () => {
-  it('a peaceful NPC does not move or attack', () => {
+  it('a peaceful NPC never attacks, and an idle one that never rolls to wander stays put', () => {
     const npc = createNpc('n', 'Ringo', 1, 0, ['hi']);
     const arena = buildArena({ width: 5, height: 1, player: { x: 0, y: 0 }, npcs: [npc] });
-    for (let i = 0; i < 50; i++) tick(arena, createRNG(i));
+    for (let i = 0; i < 50; i++) tick(arena, NEVER_WANDER);
     expect([npc.x, npc.y]).toEqual([1, 0]);
     expect(arena.state.messageLog).toEqual([]);
   });

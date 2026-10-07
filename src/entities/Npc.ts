@@ -4,6 +4,7 @@ import { PALETTE } from '../config/palette';
 import { BARE_HANDS } from '../items/ItemData';
 import type { CreatureStats } from './Creature';
 import { hostileToPlayer, startingStanding, type FactionId, type Nerve, type Temperament } from './Factions';
+import type { Point } from '../utils/geometry';
 import type { Entity } from './Entity';
 
 /** What you can do by bumping into someone. One option means bump-to-talk; several open a menu. */
@@ -28,6 +29,8 @@ export interface Npc extends Entity, CreatureStats {
   /** Index into `dialogue` of the next line to speak. Runtime-only, not persisted. */
   dialogueIndex: number;
   interactions: InteractionId[];
+  /** Where the map put them: idle wandering stays within `NPC_WANDER_RADIUS` of it. Runtime-only. */
+  home: Point;
 }
 
 const NPC_HP = 24;
@@ -85,5 +88,6 @@ export function createNpc(
     dialogue,
     dialogueIndex: 0,
     interactions,
+    home: { x, y },
   };
 }

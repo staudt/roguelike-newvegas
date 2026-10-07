@@ -69,6 +69,9 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
   noise alerts hostiles, kick/attack provoke, the red hostile ring, menus asking before attacking peacefuls.
 - **Wielded/alternate/readied**: `wieldItem`, `swapWeapons`, drop (`clearSlotsFor`), loadouts, inventory
   tags, command menu context, status bar.
+- **Idle wandering** (`wander` in `AIScheduler`: animals roam, people stay within `NPC_WANDER_RADIUS` of `home`):
+  every idle creature rolls the RNG each action, so a test that spends a turn with a scripted RNG needs a roll per
+  idle creature, or an RNG that never wanders (`() => 0.999`).
 - **Energy/speed system**: kick stagger subtracts `energy`; crippled legs, `MAX_ACTIONS_PER_TURN`.
 - **Status bar / log layout**: the renderer measures the middle band, so header height changes just work,
   but check the menu placement code if overlays move.
