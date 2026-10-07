@@ -48,6 +48,9 @@ export const PALETTE = {
   doorFg: '#e8c84a',
   doorBg: '#241a10',
 
+  // Roofs: buildings seen from outside are filled with the walls' own brown (an experiment).
+  roof: '#b0845a',
+
   // Indoor floor — warm lamplight rather than outdoor dust.
   floorFg: '#d9bb86',
   floorBg: '#3f2c18',
