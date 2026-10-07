@@ -155,8 +155,8 @@ export interface Interruption {
 }
 
 /**
- * Should the walk stop after the step just taken? Yes when anything significant changed: someone
- * new came into view, a hostile got close, you were hurt, you heard a cry, you stepped on
+ * Should the walk stop after the step just taken? Yes when anything significant changed: a hostile
+ * came into view, a hostile got close, you were hurt, you heard a cry, you stepped on
  * something lying there, or you crossed into or out of a named place.
  */
 export function travelInterruption(state: GameState, before: TravelSnapshot): Interruption | null {
@@ -166,7 +166,9 @@ export function travelInterruption(state: GameState, before: TravelSnapshot): In
   const fresh: Creature[] = [];
   let closeIn: Creature | null = null;
   for (const c of visibleCreatures(state)) {
-    if (!before.seen.has(c.id)) fresh.push(c);
+    if (!before.seen.has(c.id)) {
+      if (c.hostile) fresh.push(c); // a peaceful passer-by (a brahmin, a townsperson) is no reason to stop
+    }
     else if (c.hostile && !before.near.has(c.id) && chebyshevDistance(c, state.player) <= TRAVEL_DANGER_RADIUS) {
       closeIn = c;
     }

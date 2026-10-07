@@ -116,8 +116,8 @@ Original sketch (to reconcile with the above):
 Click a cell to walk there (BFS over explored cells, closed doors opened in passing; an unexplored target gets the
 nearest known cell plus a short straight probe, `TRAVEL_PROBE_STEPS`). Click a person to walk up and talk or open
 their menu; click an adjacent creature to attack (or answer "which direction?"); click away from a menu to close it;
-menu rows highlight on hover and take clicks. `g` + direction runs (up to `RUN_MAX_STEPS`). A walk stops on: someone
-new in view, a hostile closing within `TRAVEL_DANGER_RADIUS`, damage, a heard scream, stepping on an item, entering or
+menu rows highlight on hover and take clicks. `g` + direction runs (up to `RUN_MAX_STEPS`). A walk stops on: a hostile
+new in view (peacefuls never stop it), a hostile closing within `TRAVEL_DANGER_RADIUS`, damage, a heard scream, stepping on an item, entering or
 leaving a place, or any key or click. Reference: `../rogueout` AutoTravel.
 
 ### M5 — Multi-level buildings

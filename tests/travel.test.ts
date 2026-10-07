@@ -193,13 +193,31 @@ describe('travelInterruption', () => {
     expect(travelInterruption(a.state, before)).toBeNull();
   });
 
-  it('stops when someone comes into view and names them', () => {
+  it('stops when a hostile comes into view and names it', () => {
     const gecko = createMonster('g', 'gecko', 20, 2);
-    const doc = createNpc('doc', 'Doc', 21, 2, ['hi']);
-    const a = arena({ width: 30, height: 5, player: { x: 1, y: 2 }, monsters: [gecko], npcs: [doc] });
+    const bloatfly = createMonster('f', 'bloatfly', 21, 2);
+    const a = arena({ width: 30, height: 5, player: { x: 1, y: 2 }, monsters: [gecko, bloatfly] });
     const before = snapshotTravel(a.state);
     seeing(a, [[20, 2], [21, 2]]);
-    expect(travelInterruption(a.state, before)?.message).toBe('You see the gecko and Doc. You stop.');
+    expect(travelInterruption(a.state, before)?.message).toBe('You see the gecko and the bloatfly. You stop.');
+  });
+
+  it('does not stop for peaceful ones: a brahmin, a townsperson', () => {
+    const brahmin = createMonster('b', 'brahmin', 20, 2);
+    const doc = createNpc('doc', 'Doc', 21, 2, ['hi']);
+    const a = arena({ width: 30, height: 5, player: { x: 1, y: 2 }, monsters: [brahmin], npcs: [doc] });
+    const before = snapshotTravel(a.state);
+    seeing(a, [[20, 2], [21, 2]]);
+    expect(travelInterruption(a.state, before)).toBeNull();
+  });
+
+  it('names only the hostile when a peaceful comes into view with it', () => {
+    const gecko = createMonster('g', 'gecko', 20, 2);
+    const brahmin = createMonster('b', 'brahmin', 21, 2);
+    const a = arena({ width: 30, height: 5, player: { x: 1, y: 2 }, monsters: [gecko, brahmin] });
+    const before = snapshotTravel(a.state);
+    seeing(a, [[20, 2], [21, 2]]);
+    expect(travelInterruption(a.state, before)?.message).toBe('You see the gecko. You stop.');
   });
 
   it('does not stop again for someone already in view and still far', () => {
