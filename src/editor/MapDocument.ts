@@ -6,7 +6,7 @@ import type { BuildingPatch } from '../world/buildingTemplate';
 import { ChunkedMap, chunkKey, createChunk, type Chunk } from '../world/ChunkedMap';
 import { chunkToText, decodeChunk, encodeChunk, type ChunkJSON } from '../world/ChunkCodec';
 import { FlatMap } from '../world/FlatMap';
-import { GROUND_TILE, VOID_TILE, tileIdOf, tileIndex } from '../world/Tile';
+import { GROUND_TILE, VOID_TILE, baseCodeOf, baseGroundHeight, tileIdOf, tileIndex, tileIsGround, tileIsOverlay } from '../world/Tile';
 import type { TileMap } from '../world/TileMap';
 
 /**
@@ -491,7 +491,12 @@ export class MapDocument {
     const tile = tileIndex(tileId);
     if (this.map.getTile(x, y) === tile && (tile === VOID_TILE || this.map.has(x, y))) return false;
     this.record(x, y);
+    // An object keeps what it stands on: painting a rock or wall over ground, road or floor stores that
+    // base in the height byte, and painting ground back over an object restores its height.
+    const base = baseCodeOf(tileIdOf(this.map.getTile(x, y)), this.map.getHeight(x, y));
     this.map.setTile(x, y, tile);
+    if (tileIsOverlay(tile)) this.map.setHeight(x, y, base);
+    else if (tileIsGround(tile)) this.map.setHeight(x, y, baseGroundHeight(base));
     return true;
   }
 

@@ -59,6 +59,10 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
   tests that assume strength 5 / agility 7 (`kick.test`, `gun-accuracy.test`, `combat-*`).
 - **Creature size / mass / speed**: gun to-hit (`targetEvasion`), kick knockback (`SIZE_MASS`, `mass`),
   stagger after a kick, AI action counts. Any new monster needs size, speed and (if unusual) mass reviewed.
+- **Objects on a base (rock, wall, future fences/safes)**: tiles with `overlay: true` draw only their glyph and take the
+  background of what is under them. Their height byte is a *base code* (`BASE_*` in `world/Tile.ts`: 0..3 ground, 4..7 road,
+  8 floor), not a terrain height; `MapDocument.paintTile` keeps the base when an object is painted over a cell. New object
+  tiles just set `overlay: true`. Re-check `visualFor`, `LineOfSight.groundHeightAt`, the editor overview colours.
 - **Terrain heights / new ground-like tiles**: `canStep`, `LineOfSight`, `Kick` slopes, renderer glyphs,
   editor palette, `TILE_ORDER` (append only). Gunshots use the same line of sight.
 - **Gun stats** (`effectiveRange`, bonuses): aim bands (`AIM_ZONES`), crowding penalty, creature gun AI

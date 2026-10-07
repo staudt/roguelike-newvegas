@@ -1,6 +1,6 @@
 import { linePoints, type Point } from '../utils/geometry';
 import type { MapGrid } from '../world/GameMap';
-import { tileIsGround, tileOpaque } from '../world/Tile';
+import { baseGroundHeight, tileIsGround, tileIsOverlay, tileOpaque } from '../world/Tile';
 
 /** Eyes (and gun barrels) sit this far above the ground you stand on: one rise is never cover. */
 const EYE_HEIGHT = 1;
@@ -12,7 +12,9 @@ const TARGET_HEIGHT = 1;
 const WALL_HEIGHT = 2;
 
 function groundHeightAt(map: MapGrid, p: Point): number {
-  return tileIsGround(map.getTile(p.x, p.y)) ? map.getHeight(p.x, p.y) : 0;
+  const tile = map.getTile(p.x, p.y);
+  if (tileIsGround(tile)) return map.getHeight(p.x, p.y);
+  return tileIsOverlay(tile) ? baseGroundHeight(map.getHeight(p.x, p.y)) : 0;
 }
 
 /**
@@ -35,7 +37,7 @@ export function hasLineOfSight(map: MapGrid, from: Point, to: Point): boolean {
   const fromHeight = groundHeightAt(map, from) + EYE_HEIGHT;
   // A wall has no ground height of its own; it stands on the terrain just before it on the line.
   const toHeight = tileOpaque(map.getTile(to.x, to.y))
-    ? Math.max(map.getHeight(to.x, to.y), groundHeightAt(map, points[steps - 1]!)) + WALL_HEIGHT
+    ? Math.max(groundHeightAt(map, to), groundHeightAt(map, points[steps - 1]!)) + WALL_HEIGHT
     : groundHeightAt(map, to) + TARGET_HEIGHT;
 
   for (let i = 1; i < points.length; i++) {

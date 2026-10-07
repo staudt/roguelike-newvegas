@@ -3,7 +3,7 @@ import { GROUND_LEVELS, MAX_GROUND_HEIGHT, PALETTE } from '../config/palette';
 import { linePoints, type Point } from '../utils/geometry';
 import { CHUNK_SIZE } from '../world/ChunkedMap';
 import type { ChunkJSON } from '../world/ChunkCodec';
-import { TILES, VOID_TILE, tileIdOf, tileIndex, visualFor } from '../world/Tile';
+import { BASE_FLOOR, TILES, VOID_TILE, tileIdOf, tileIndex, visualFor } from '../world/Tile';
 import type { TileMap } from '../world/TileMap';
 import {
   buildBuilding,
@@ -625,7 +625,7 @@ async function boot(): Promise<void> {
         const px = sx(x);
         const py = sy(y);
         if (px + cellW < 0 || py + cell < 0 || px > canvas.width || py > canvas.height) continue;
-        const visual = visualFor('wall', 0);
+        const visual = visualFor('wall', BASE_FLOOR);
         ctx.fillStyle = visual.bg;
         ctx.fillRect(px, py, cellW, cell);
         ctx.fillStyle = visual.fg;
@@ -745,7 +745,7 @@ async function boot(): Promise<void> {
         const tile = doc.map.getTile(wx, wy);
         if (tile === VOID_TILE) continue;
         const height = doc.map.getHeight(wx, wy);
-        const key = tile * 8 + height;
+        const key = tile * 16 + height;
         let color = colors.get(key);
         if (color === undefined) {
           color = visualFor(tileIdOf(tile), height).bg;

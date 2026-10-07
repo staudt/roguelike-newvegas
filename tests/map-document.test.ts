@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FILL_CAP, MapDocument, type FlatSpaceJSON, type WorldMetaJSON } from '../src/editor/MapDocument';
 import { encodeChunk } from '../src/world/ChunkCodec';
 import { createChunk } from '../src/world/ChunkedMap';
-import { GROUND_TILE } from '../src/world/Tile';
+import { BASE_FLOOR, BASE_ROAD, GROUND_TILE } from '../src/world/Tile';
 import { readWorldChunks } from './helpers/world';
 
 const RAW_META = import.meta.glob<string>('../src/world/goodsprings/world.json', {
@@ -246,5 +246,29 @@ describe('flat spaces', () => {
     expect(doc.tileAt(11, 21)).toBe('floor');
     expect(JSON.parse(doc.flatText())).toMatchObject({ ...flat, monsters: [] });
     expect(doc.expand('E', 'ground')).toEqual([]);
+  });
+});
+
+describe('MapDocument objects keep their base', () => {
+  it('a wall painted over floor or raised ground remembers it, and ground painted back restores the height', () => {
+    const doc = groundWorld();
+    doc.beginStroke();
+    doc.paintTile(2, 2, 'floor');
+    doc.paintTile(2, 2, 'wall');
+    expect(doc.heightAt(2, 2)).toBe(BASE_FLOOR);
+
+    doc.setHeight(3, 3, 2);
+    doc.paintTile(3, 3, 'rock');
+    expect(doc.heightAt(3, 3)).toBe(2);
+    doc.paintTile(3, 3, 'wall'); // object over object keeps the base
+    expect(doc.heightAt(3, 3)).toBe(2);
+    doc.paintTile(3, 3, 'ground');
+    expect(doc.heightAt(3, 3)).toBe(2);
+
+    doc.paintTile(4, 4, 'road');
+    doc.paintTile(4, 4, 'rock');
+    expect(doc.heightAt(4, 4)).toBe(BASE_ROAD);
+    doc.paintTile(4, 4, 'ground');
+    expect(doc.heightAt(4, 4)).toBe(0);
   });
 });

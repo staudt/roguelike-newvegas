@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { GROUND_LEVELS, MAX_GROUND_HEIGHT, PALETTE, ROAD_LEVELS } from '../src/config/palette';
 import { createEmptyGrid, getHeight, setHeight } from '../src/world/GameMap';
-import type { ChunkJSON } from '../src/world/ChunkCodec';
-import { visualFor } from '../src/world/Tile';
+import { decodeChunk, type ChunkJSON } from '../src/world/ChunkCodec';
+import { BASE_FLOOR, tileIsGround, visualFor } from '../src/world/Tile';
 
 const CHUNKS = import.meta.glob<ChunkJSON>('../src/world/goodsprings/chunks/*.json', {
   eager: true,
@@ -63,12 +63,14 @@ describe('the ground height ladder', () => {
     expect(visualFor('floor', 0).glyph).toBe(' ');
   });
 
-  it('no stored map cell is taller than the top rung', () => {
+  it('no ground cell is taller than the top rung, and no object holds an unknown base code', () => {
     const chunks = Object.values(CHUNKS);
     expect(chunks.length).toBeGreaterThan(0);
-    for (const chunk of chunks) {
-      for (let i = 1; i < chunk.heights.length; i += 2) {
-        expect(chunk.heights[i]).toBeLessThanOrEqual(MAX_GROUND_HEIGHT);
+    for (const json of chunks) {
+      const chunk = decodeChunk(json);
+      for (let i = 0; i < chunk.tiles.length; i++) {
+        const limit = tileIsGround(chunk.tiles[i]!) ? MAX_GROUND_HEIGHT : BASE_FLOOR;
+        expect(chunk.heights[i]).toBeLessThanOrEqual(limit);
       }
     }
   });
