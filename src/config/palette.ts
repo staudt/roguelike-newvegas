@@ -15,10 +15,11 @@ export interface GroundLevel {
 }
 
 export const GROUND_LEVELS: readonly GroundLevel[] = [
-  // 0 and 1 share the `▒` texture and differ only in colour: 0 is centred on the old flat colour
-  // (#4a3826), 1 is a clear step brighter. Widen or narrow the fg/bg gap to make it louder or quieter.
-  { glyph: '▒', fg: '#665037', bg: '#2e2015' }, // 0 — flat ground
-  { glyph: '▒', fg: '#7e6642', bg: '#4a3a26' }, // 1 — rising dust
+  // 0 and 1 share the `▒` texture and differ only in colour. Both sit a little brighter than the old
+  // flat ground (#4a3826) so they blend with the lamplit floors, with a gentle fg/bg gap: widen it
+  // for a louder texture, narrow it for a quieter one. Level 1 is a clear step brighter than 0.
+  { glyph: '▒', fg: '#624d33', bg: '#4e3b27' }, // 0 — flat ground
+  { glyph: '▒', fg: '#7b6440', bg: '#614c30' }, // 1 — rising dust
   { glyph: '▓', fg: '#a37f41', bg: '#322313' }, // 2 — rocky rise
   { glyph: '█', fg: '#8a6a37', bg: '#2a1d0f' }, // 3 — ridge top, highest walkable ground
 ];
@@ -28,8 +29,8 @@ export const GROUND_LEVELS: readonly GroundLevel[] = [
  * ground (`▒ ▒ ▓ █`); only the colors say "paved".
  */
 export const ROAD_LEVELS: readonly GroundLevel[] = [
-  { glyph: '▒', fg: '#53524f', bg: '#23221f' }, // centred on the old flat road (#3b3a37)
-  { glyph: '▒', fg: '#615f5a', bg: '#35332e' },
+  { glyph: '▒', fg: '#4f4e4b', bg: '#3d3c39' }, // a little brighter than the old flat road (#3b3a37)
+  { glyph: '▒', fg: '#5f5d58', bg: '#4b4944' },
   { glyph: '▓', fg: '#736f66', bg: '#292825' },
   { glyph: '█', fg: '#66625a', bg: '#232220' },
 ];

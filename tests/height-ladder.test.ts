@@ -16,20 +16,25 @@ describe('the ground height ladder', () => {
     expect(ROAD_LEVELS.map((l) => l.glyph)).toEqual(GROUND_LEVELS.map((l) => l.glyph));
   });
 
-  it('flat ground keeps its old overall tone under a texture you can actually see', () => {
+  it('flat ground is a little brighter than it used to be, with a gentle texture', () => {
     const tone = (hex: string): number[] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
     const average = (v: { fg: string; bg: string }): number[] =>
       tone(v.fg).map((c, i) => (c + tone(v.bg)[i]!) / 2);
     const flat = visualFor('ground', 0);
     expect(flat.glyph).toBe('▒');
-    // The old flat ground was its background alone: #4a3826 (road: #3b3a37).
-    average(flat).forEach((c, i) => expect(Math.abs(c - tone('#4a3826')[i]!)).toBeLessThanOrEqual(1));
-    average(visualFor('road', 0)).forEach((c, i) => expect(Math.abs(c - tone('#3b3a37')[i]!)).toBeLessThanOrEqual(1));
-    // The texture is visible (a clear gap between glyph and ground) without being loud.
+    // The old flat ground was its background alone, #4a3826 (road: #3b3a37): now a touch lighter, not much.
+    for (const [v, old] of [[flat, '#4a3826'], [visualFor('road', 0), '#3b3a37']] as const) {
+      average(v).forEach((c, i) => {
+        const lift = c - tone(old)[i]!;
+        expect(lift).toBeGreaterThanOrEqual(0);
+        expect(lift).toBeLessThanOrEqual(24);
+      });
+    }
+    // The texture shows without shouting: a modest gap between glyph and ground.
     const gaps = tone(flat.fg).map((c, i) => c - tone(flat.bg)[i]!);
-    expect(Math.max(...gaps)).toBeGreaterThanOrEqual(40); // clearly visible in the strongest channel
-    gaps.forEach((g) => expect(g).toBeGreaterThanOrEqual(24));
-    expect(Math.max(...gaps)).toBeLessThanOrEqual(80); // but not loud
+    expect(Math.max(...gaps)).toBeGreaterThanOrEqual(14);
+    expect(Math.max(...gaps)).toBeLessThanOrEqual(32);
+    gaps.forEach((g) => expect(g).toBeGreaterThanOrEqual(8));
   });
 
   it('each rung is brighter overall than the one below, so height still reads at a glance', () => {
