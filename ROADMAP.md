@@ -41,7 +41,7 @@ Ground items (`,` pick up with an "All of it" menu, `d` drop), stimpaks (`q`), a
 creature; shots alert nearby hostiles). Undroppable items (the Pip-Boy). Creatures carry items from map
 loadouts, drop them (plus rolled loot) when they die, and use them: a provoked Ringo draws his pistol,
 lines up and shoots back; creatures fight with what they wield and the log names it. Status bar shows
-ammo and what you wield; red/amber shot tracers. Editor: ground-item mode and NPC/monster loadouts.
+ammo and what you wield; red/amber shot tracers (the map shows creatures as they were before the turn until the tracers land, so kills, monster moves and a fatal shot's death screen wait for the animation; the log still updates at once). Editor: ground-item mode and NPC/monster loadouts.
 483 tests.
 
 ## Planned (in order) — and how each fits the current code

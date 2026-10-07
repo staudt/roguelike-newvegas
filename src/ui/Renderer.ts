@@ -17,9 +17,31 @@ export interface Tracer {
   fg: string;
 }
 
+/** How the creatures and the player looked at some moment, so an animation can play before the outcome shows. */
+export interface SceneView {
+  player: { x: number; y: number };
+  creatures: Array<{ x: number; y: number; glyph: string; fg: string; hostile: boolean }>;
+}
+
+export function captureScene(state: GameState): SceneView {
+  const space = getActiveSpace(state);
+  return {
+    player: { x: state.player.x, y: state.player.y },
+    creatures: [...space.npcs, ...space.monsters].map((c) => ({
+      x: c.x,
+      y: c.y,
+      glyph: c.glyph,
+      fg: c.fg,
+      hostile: c.hostile,
+    })),
+  };
+}
+
 export class Renderer {
   /** Set by the game while a shot animates; drawn last by render(). */
   tracer: Tracer | null = null;
+  /** While set, creatures and the player are drawn as they were in this view, not as they are now. */
+  scene: SceneView | null = null;
   readonly camera = new Camera();
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
@@ -90,7 +112,7 @@ export class Renderer {
   render(state: GameState): void {
     const ctx = this.ctx;
     const space = getActiveSpace(state);
-    this.camera.centerOn(state.player);
+    this.camera.centerOn(this.scene?.player ?? state.player);
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -128,14 +150,16 @@ export class Renderer {
       this.drawGlyph(screen.x, screen.y, def.glyph, def.fg);
     }
 
-    for (const creature of [...space.npcs, ...space.monsters]) {
+    const creatures = this.scene?.creatures ?? [...space.npcs, ...space.monsters];
+    for (const creature of creatures) {
       if (!space.visible.has(creature.x, creature.y)) continue;
       const screen = this.camera.worldToScreen(creature.x, creature.y);
       if (creature.hostile) this.drawHostileRing(screen.x, screen.y);
       this.drawGlyph(screen.x, screen.y, creature.glyph, creature.fg);
     }
 
-    const playerScreen = this.camera.worldToScreen(state.player.x, state.player.y);
+    const playerAt = this.scene?.player ?? state.player;
+    const playerScreen = this.camera.worldToScreen(playerAt.x, playerAt.y);
     this.drawGlyph(playerScreen.x, playerScreen.y, state.player.glyph, state.player.fg);
 
     if (this.tracer) {

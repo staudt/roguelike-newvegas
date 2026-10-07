@@ -20,7 +20,7 @@ import { buildCommandList, type CommandRow } from '../ui/commandMenu';
 import { MessageLog } from '../ui/MessageLog';
 import type { MessageGroup } from '../ui/messageGroups';
 import { PALETTE } from '../config/palette';
-import { Renderer } from '../ui/Renderer';
+import { Renderer, captureScene, type SceneView } from '../ui/Renderer';
 import { limbShortName, StatusBar } from '../ui/StatusBar';
 import { TRAVEL_STEP_MS } from '../config/constants';
 import { EventBus, type GameEvents } from './EventBus';
@@ -171,6 +171,8 @@ export class Game {
   private streamedChunk: ChunkCoord | null = null;
   private pendingShots: ShotEvent[] = [];
   private playingShots = false;
+  /** How creatures looked before the current input, shown while its shots animate so the outcome waits. */
+  private beforeInput: SceneView | null = null;
   /** Bumped by restart; a tracer timer from an older generation does nothing. */
   private animationToken = 0;
   private lastShotEvent: ShotEvent | null = null;
@@ -255,7 +257,7 @@ export class Game {
         this.lastShotEvent = shot;
         this.pendingShots.push(shot);
       }),
-      this.events.on('player-died', () => this.showDeathScreen()),
+      // No 'player-died' handler: render() shows the death screen, once any shot animation has played.
     ];
   }
 
@@ -332,6 +334,7 @@ export class Game {
     }
     const state = this.state;
     const from = state.messageLog.length;
+    this.beforeInput = captureScene(state);
     this.inputDepth++;
     try {
       run();
@@ -736,7 +739,13 @@ export class Game {
 
   private render(): void {
     // The engine flags death before the event handler necessarily ran (e.g. via the bridge).
-    if (this.state.gameOver && this.mode.kind !== 'game-over') this.showDeathScreen();
+    // A fatal shot's tracer plays first; finishing the animation shows the death screen.
+    const shotsHeld = this.playingShots || this.pendingShots.length > 0;
+    if (this.state.gameOver && this.mode.kind !== 'game-over' && !shotsHeld) this.showDeathScreen();
+    // The turn has already happened; until the tracers land, draw things as they were before it.
+    if (this.pendingShots.length > 0 && !this.playingShots && this.mode.kind === 'normal') {
+      this.renderer.scene = this.beforeInput;
+    }
     this.renderer.render(this.state);
     this.streamChunks();
     this.messageLog.render(this.state.messageLog, this.messageGroups);
@@ -918,6 +927,8 @@ export class Game {
     this.pendingShots = [];
     this.playingShots = false;
     this.renderer.tracer = null;
+    this.renderer.scene = null;
+    this.beforeInput = null;
     if (this.mode.kind === 'animating') this.mode = { kind: 'normal' };
   }
 
@@ -928,12 +939,14 @@ export class Game {
    */
   private playQueuedShots(): void {
     if (this.playingShots || this.pendingShots.length === 0) return;
-    if (this.mode.kind !== 'normal' || this.state.gameOver) {
+    if (this.mode.kind !== 'normal') {
       this.pendingShots = [];
+      this.beforeInput = null;
       return;
     }
     this.playingShots = true;
     this.setMode({ kind: 'animating' });
+    this.beforeInput = null;
     const token = this.animationToken;
     const state = this.state;
     const queue = this.pendingShots;
@@ -942,8 +955,9 @@ export class Game {
       if (token !== this.animationToken) return;
       this.playingShots = false;
       this.renderer.tracer = null;
+      this.renderer.scene = null;
       if (this.mode.kind === 'animating') this.setMode({ kind: 'normal' });
-      this.render();
+      this.render(); // shows the death screen too, if the shot was fatal
     };
     const playShot = (shot: ShotEvent | undefined) => {
       if (token !== this.animationToken) return;
