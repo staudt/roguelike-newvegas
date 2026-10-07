@@ -55,7 +55,7 @@ export const PALETTE = {
   // Fog of war.
   unexplored: '#000000',
   // Remembered (seen, but out of sight now): dimmed, not blacked out. Raise the alpha for gloomier shadows.
-  rememberedOverlay: 'rgba(10, 8, 4, 0.38)',
+  rememberedOverlay: 'rgba(10, 8, 4, 0.2)',
 
   // Entities.
   playerFg: '#fff2cc',

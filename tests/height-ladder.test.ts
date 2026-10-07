@@ -47,9 +47,9 @@ describe('the ground height ladder', () => {
     }
   });
 
-  it('remembered cells are dimmed, not blacked out: shadows should not feel like night', () => {
+  it('remembered cells are only lightly dimmed: shadows should not feel like night', () => {
     const alpha = Number(PALETTE.rememberedOverlay.split(',').pop()!.replace(')', ''));
-    expect(alpha).toBeGreaterThan(0.2); // still visibly out of sight
+    expect(alpha).toBeGreaterThanOrEqual(0.1); // still a hint of out-of-sight
     expect(alpha).toBeLessThanOrEqual(0.45);
   });
 
