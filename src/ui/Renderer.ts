@@ -7,7 +7,6 @@ import { VOID_TILE, tileIdOf, visualFor } from '../world/Tile';
 import { itemDef } from '../items/ItemData';
 import { drawBalloon } from './Balloon';
 import { Camera } from './Camera';
-import { isRoofed, roofedPlaces } from './Roofs';
 import { isConnectedWall, wallGlyph } from './WallGlyphs';
 
 /** A transient glyph drawn above everything (a bullet in flight, a hit flash). */
@@ -101,7 +100,6 @@ export class Renderer {
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
     const footprint: Rect | null = space.indoor ? space.grid.bounds() : null;
-    const roofs = roofedPlaces(space, state.player);
 
     for (let sy = 0; sy < this.camera.rows; sy++) {
       for (let sx = 0; sx < this.camera.cols; sx++) {
@@ -116,17 +114,7 @@ export class Renderer {
         const map = space.grid;
         if (!map.has(worldX, worldY)) continue;
         const tile = map.getTile(worldX, worldY);
-        if (tile === VOID_TILE) continue;
-        const explored = map.isExplored(worldX, worldY);
-        if (
-          roofs.length > 0 &&
-          isRoofed(roofs, worldX, worldY, tileIdOf(tile), explored, space.visible.has(worldX, worldY))
-        ) {
-          this.ctx.fillStyle = PALETTE.roof;
-          this.ctx.fillRect(sx * this.camera.cellW, sy * this.camera.cellH, this.camera.cellW, this.camera.cellH);
-          continue;
-        }
-        if (!explored) continue;
+        if (tile === VOID_TILE || !map.isExplored(worldX, worldY)) continue;
 
         this.drawTerrainCell(space, worldX, worldY, sx, sy, space.visible.has(worldX, worldY));
       }
