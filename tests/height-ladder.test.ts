@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GROUND_LEVELS, MAX_GROUND_HEIGHT, ROAD_LEVELS } from '../src/config/palette';
+import { GROUND_LEVELS, MAX_GROUND_HEIGHT, PALETTE, ROAD_LEVELS } from '../src/config/palette';
 import { createEmptyGrid, getHeight, setHeight } from '../src/world/GameMap';
 import type { ChunkJSON } from '../src/world/ChunkCodec';
 import { visualFor } from '../src/world/Tile';
@@ -45,6 +45,12 @@ describe('the ground height ladder', () => {
       const tone = levels.map((l, i) => lum(l.fg) * cover[i]! + lum(l.bg) * (1 - cover[i]!));
       for (let i = 1; i < tone.length; i++) expect(tone[i]!).toBeGreaterThan(tone[i - 1]!);
     }
+  });
+
+  it('remembered cells are dimmed, not blacked out: shadows should not feel like night', () => {
+    const alpha = Number(PALETTE.rememberedOverlay.split(',').pop()!.replace(')', ''));
+    expect(alpha).toBeGreaterThan(0.2); // still visibly out of sight
+    expect(alpha).toBeLessThanOrEqual(0.45);
   });
 
   it('heights are clamped to the top rung', () => {
