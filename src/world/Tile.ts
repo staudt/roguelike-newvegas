@@ -16,6 +16,8 @@ export interface TileDef {
   glyph?: string;
   fg?: string;
   bg?: string;
+  /** Draw on whatever ground surrounds the cell (a rock on a hill sits on the hill's colour). */
+  bgFromGround?: boolean;
 }
 
 export const TILES: Record<string, TileDef> = {
@@ -31,7 +33,7 @@ export const TILES: Record<string, TileDef> = {
     opaque: true,
     glyph: '*',
     fg: PALETTE.rockFg,
-    bg: PALETTE.rockBg,
+    bgFromGround: true,
   },
   wall: {
     id: 'wall',
@@ -81,7 +83,10 @@ export interface TileVisual {
   bg: string;
 }
 
-/** Resolves what to actually draw for a tile, folding in per-cell height for ground tiles. */
+/**
+ * Resolves what to actually draw for a tile, folding in per-cell height for ground tiles. For a tile
+ * that sits on the ground (`bgFromGround`, a rock) `height` is the height of the ground around it.
+ */
 export function visualFor(id: string, height: number): TileVisual {
   const def = tileDef(id);
   if (def.isGround) {
@@ -89,6 +94,9 @@ export function visualFor(id: string, height: number): TileVisual {
       ? def.levels[Math.max(0, Math.min(def.levels.length - 1, height))]!
       : groundLevel(height);
     return { glyph: level.glyph, fg: level.fg, bg: level.bg };
+  }
+  if (def.bgFromGround) {
+    return { glyph: def.glyph ?? '?', fg: def.fg ?? '#ffffff', bg: groundLevel(height).bg };
   }
   return { glyph: def.glyph ?? '?', fg: def.fg ?? '#ffffff', bg: def.bg ?? '#000000' };
 }

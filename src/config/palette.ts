@@ -41,8 +41,9 @@ export const PALETTE = {
   ground: GROUND_LEVELS,
 
   // Hard barriers.
-  rockFg: '#8a8a86',
-  rockBg: '#1f1b16',
+  // Rocks take the colour of the ground they sit on (see `bgFromGround`), so only the glyph colour is set:
+  // the brown of the high ground.
+  rockFg: '#8a6a37',
   wallFg: '#b0845a',
   wallBg: '#241a10',
   doorFg: '#e8c84a',

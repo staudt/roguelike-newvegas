@@ -2,7 +2,7 @@ import { MAX_STEP_HEIGHT_DELTA } from '../config/constants';
 import { MAX_GROUND_HEIGHT } from '../config/palette';
 import type { Point } from '../utils/geometry';
 import { createEmptyGrid } from './FlatMap';
-import { tileIdOf, tileIndex, tileIsGround, tileOpaque, tileWalkable } from './Tile';
+import { tileDef, tileIdOf, tileIndex, tileIsGround, tileOpaque, tileWalkable, visualFor, type TileVisual } from './Tile';
 import type { TileMap } from './TileMap';
 
 /**
@@ -61,4 +61,32 @@ export function canStep(map: MapGrid, from: Point, to: Point): boolean {
   }
 
   return true;
+}
+
+/** The most common height among the ground cells around (x, y), the higher on a tie; the cell's own height if none. */
+export function surroundingGroundHeight(map: MapGrid, x: number, y: number): number {
+  const counts = new Map<number, number>();
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if ((dx === 0 && dy === 0) || !tileIsGround(map.getTile(x + dx, y + dy))) continue;
+      const h = map.getHeight(x + dx, y + dy);
+      counts.set(h, (counts.get(h) ?? 0) + 1);
+    }
+  }
+  let best = map.getHeight(x, y);
+  let bestCount = 0;
+  for (const [h, n] of counts) {
+    if (n > bestCount || (n === bestCount && h > best)) {
+      best = h;
+      bestCount = n;
+    }
+  }
+  return best;
+}
+
+/** What to draw for a cell: its tile's look, at its own height, or at the ground's height around it for rocks. */
+export function visualAt(map: MapGrid, x: number, y: number): TileVisual {
+  const id = getTileId(map, x, y);
+  const height = tileDef(id).bgFromGround ? surroundingGroundHeight(map, x, y) : map.getHeight(x, y);
+  return visualFor(id, height);
 }
