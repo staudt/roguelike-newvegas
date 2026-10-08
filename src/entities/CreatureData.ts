@@ -2,7 +2,7 @@ import type { AttackProfile, CreatureSize } from '../combat/Combatant';
 import type { BodyPlanId } from '../combat/Limbs';
 import { NPC_WANDER_CHANCE, NPC_WANDER_RADIUS, NORMAL_SPEED, PEACEFUL_WANDER_CHANCE } from '../config/constants';
 import { PALETTE } from '../config/palette';
-import { BARE_HANDS } from '../items/ItemData';
+import { BARE_HANDS, type ItemId } from '../items/ItemData';
 import { hostileToPlayer, startingStanding, type FactionId, type Nerve, type Temperament } from './Factions';
 
 /**
@@ -50,7 +50,7 @@ export interface CreatureDef {
 }
 
 export interface LootEntry {
-  defId: string;
+  defId: ItemId;
   /** Percent chance 1-100. */
   chance: number;
   /** Stack size for ammunition (inclusive range); ignored for other items. */
@@ -61,7 +61,7 @@ export interface LootEntry {
  * Glyphs follow NetHack's letters for the kind of thing, colors tell them apart: `g` for the
  * lizards, `a` for insects, `r` for rodents-and-roaches, `q` for the cattle.
  */
-export const CREATURES: Record<string, CreatureDef> = {
+const CREATURE_TABLE = {
   gecko: {
     id: 'gecko',
     size: 'small',
@@ -201,7 +201,13 @@ export const CREATURES: Record<string, CreatureDef> = {
     opensDoors: true,
     social: true,
   },
-};
+} satisfies Record<string, CreatureDef>;
+
+/** Every creature kind's id, checked at compile time wherever code names a kind. */
+export type CreatureId = keyof typeof CREATURE_TABLE;
+
+/** The table, indexed by plain strings (map JSON is untyped). */
+export const CREATURES: Record<string, CreatureDef> = CREATURE_TABLE;
 
 /** The traits a creature carries at runtime, with the defaults filled in. */
 export interface CreatureTraits {

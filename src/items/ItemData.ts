@@ -86,7 +86,7 @@ export interface MiscDef extends ItemDefBase {
 export type ItemDef = WeaponDef | GunDef | AmmoDef | ConsumableDef | MiscDef;
 export type ItemKind = ItemDef['kind'];
 
-export const ITEMS: Record<string, ItemDef> = {
+const ITEM_TABLE = {
   'combat-knife': {
     id: 'combat-knife',
     name: 'combat knife',
@@ -173,7 +173,13 @@ export const ITEMS: Record<string, ItemDef> = {
     fg: '#7fbf5f',
     kind: 'misc',
   },
-};
+} satisfies Record<string, ItemDef>;
+
+/** Every item id, checked at compile time wherever code names an item. */
+export type ItemId = keyof typeof ITEM_TABLE;
+
+/** The table, indexed by plain strings (map JSON is untyped). */
+export const ITEMS: Record<string, ItemDef> = ITEM_TABLE;
 
 /** Bare hands: weak, but they are always there. */
 export const BARE_HANDS: AttackProfile = {

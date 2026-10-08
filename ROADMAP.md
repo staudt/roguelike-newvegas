@@ -157,7 +157,8 @@ Ahead of many more creatures, factions, tiles and items. In order:
 6. Done: faction relations live in `FactionDef` (`beast`, `enemies` listed on one side), and `factionRelation`
    is a lookup in a table built once at load, ready for per-pair infighting checks.
 7. Per-chunk creatures/items (also in Scale follow-ups); instance ids unique across spaces before save/load.
-8. A data-integrity test (loot/loadout ids, ammo types, factions, NPC profiles, map def ids).
+8. Done: `tests/data-integrity.test.ts` cross-checks the tables and the map (ids, loot, ammo types, factions,
+   NPC profiles and kinds, hit profiles summing to 100). `ItemId` / `CreatureId` type ids named in code.
 9. Split `Game.ts` and `editor/main.ts` when next touched.
 
 ### Smaller open items

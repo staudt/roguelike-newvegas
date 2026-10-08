@@ -30,7 +30,8 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
   (places, creatures, items) plus one file per chunk in `goodsprings/chunks/` (`<cx>_<cy>.json`).
   `src/editor` — the map editor (`MapDocument`). `src/ui` — renderer, menus, status bar, log. `src/config` — constants, palette.
 - Everything tunable lives in `src/config/constants.ts` or the data files. Prefer data and constants over
-  special cases.
+  special cases. A new table, or a new field that names ids in another table, gets a check in
+  `tests/data-integrity.test.ts`; ids written in code use the `ItemId` / `CreatureId` types.
 
 ## Conventions
 - Engine functions return whether a turn was spent and call `advanceTurn` themselves; a refused action is
