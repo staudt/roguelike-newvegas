@@ -143,6 +143,9 @@ points and below 50% can jam (up to 20% a shot; the turn goes, the round stays).
 `W`/`T`, DT summed with a creature's natural hide; at least 20% of a hit always lands; DT falls to half as the
 piece wears. Broken (0%) things come off and can't be used. Map gear starts used (carried 20-70%, ground 30-90%;
 `condition` in percent pins it). Firing or picking up readies ammo that fits the gun in hand.
+New content with it: varmint rifle (5.56mm rounds), tire iron, rolling pin, kitchen knife; young gecko (light,
+quick, frail), giant rat, wild dog, giant mantis (natural DT 1); grown geckos are heavier to kick (mass 3.5). All are
+in the editor's palettes; none is placed in the map yet.
 Next: repair (combine with a copy of the same item, a Repair skill later), the editor's UI for `wear` and
 `condition` (they already survive a save), armor and weapon prices once there is trade.
 

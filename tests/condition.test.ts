@@ -263,3 +263,45 @@ describe('creatures and broken guns', () => {
     expect(npc.wielded).toBeNull();
   });
 });
+
+describe('two guns, two calibres', () => {
+  it('switching guns readies the rounds that fit each, and firing keeps it right', () => {
+    const a = buildArena({ width: 8, height: 1, player: { x: 0, y: 0 } });
+    const p = a.state.player;
+    const rifle = createItem('varmint-rifle');
+    const rifleRounds = createItem('556-round', 10);
+    p.inventory.push(rifle, rifleRounds);
+    const pistol = p.inventory.find((i) => i.defId === '9mm-pistol')!;
+    const nineMil = p.inventory.find((i) => i.defId === '9mm-round')!;
+
+    wieldItem(a.state, rifle.id, a.events);
+    expect(p.readied).toBe(rifleRounds.id);
+    wieldItem(a.state, pistol.id, a.events);
+    expect(p.readied).toBe(nineMil.id);
+
+    // Wrong rounds readied by hand: the trigger swaps in the right ones by itself.
+    p.wielded = rifle.id;
+    p.readied = nineMil.id;
+    fireGun(a.state, 'E', a.events, ALWAYS_HIT);
+    expect(p.readied).toBe(rifleRounds.id);
+    expect(rifleRounds.count).toBe(9);
+    expect(nineMil.count).toBe(24);
+  });
+});
+
+describe('natural Damage Threshold', () => {
+  it("a mantis's chitin takes the edge off a blow", () => {
+    const blowOn = (dt: number): number => {
+      const mantis = createMonster('m', 'giant-mantis', 1, 0);
+      mantis.naturalDT = dt;
+      const a = buildArena({ width: 3, height: 1, player: { x: 0, y: 0 }, monsters: [mantis] });
+      const knife = a.state.player.inventory.find((i) => i.defId === 'combat-knife')!;
+      a.state.player.wielded = knife.id;
+      const before = mantis.hp;
+      playerAttacks(a.state, mantis, scriptedRNG([0, 0.5, 0.999])); // hit, the body, top damage
+      return before - mantis.hp;
+    };
+    expect(createMonster('m', 'giant-mantis', 0, 0).naturalDT).toBe(1);
+    expect(blowOn(0) - blowOn(1)).toBe(1);
+  });
+});

@@ -170,6 +170,77 @@ const ITEM_TABLE = {
       strengthBonus: false,
     },
   },
+  'kitchen-knife': {
+    id: 'kitchen-knife',
+    name: 'kitchen knife',
+    glyph: ')',
+    fg: '#c0c8cc',
+    kind: 'weapon',
+    durability: 60,
+    attack: {
+      damage: { min: 2, max: 4 },
+      accuracyBonus: 5,
+      hitProfile: { head: 8, torso: 44, arm: 24, leg: 24 },
+      strengthBonus: true,
+    },
+  },
+  'rolling-pin': {
+    id: 'rolling-pin',
+    name: 'rolling pin',
+    glyph: ')',
+    fg: '#c8a070',
+    kind: 'weapon',
+    durability: 80,
+    attack: {
+      damage: { min: 2, max: 5 },
+      accuracyBonus: 0,
+      hitProfile: { head: 20, torso: 45, arm: 18, leg: 17 },
+      strengthBonus: true,
+    },
+  },
+  'tire-iron': {
+    id: 'tire-iron',
+    name: 'tire iron',
+    glyph: ')',
+    fg: '#707880',
+    kind: 'weapon',
+    // Solid steel: it outlasts any bat.
+    durability: 150,
+    attack: {
+      damage: { min: 3, max: 7 },
+      accuracyBonus: 0,
+      hitProfile: { head: 18, torso: 42, arm: 20, leg: 20 },
+      strengthBonus: true,
+    },
+  },
+  'varmint-rifle': {
+    id: 'varmint-rifle',
+    name: 'varmint rifle',
+    glyph: ')',
+    fg: '#7a6a50',
+    kind: 'gun',
+    durability: 120,
+    ammoType: '5.56mm',
+    // Long and accurate: clumsy up close, at its best at range.
+    range: 16,
+    shot: {
+      damage: { min: 6, max: 12 },
+      accuracyBonus: 10,
+      accuracy: {
+        effectiveRange: 10,
+        closeBonus: 20,
+        effectiveBonus: 25,
+        falloffPerCell: 5,
+      },
+      hitProfile: { head: 14, torso: 50, arm: 18, leg: 18 },
+    },
+    butt: {
+      damage: { min: 2, max: 4 },
+      accuracyBonus: -5,
+      hitProfile: { head: 10, torso: 45, arm: 20, leg: 25 },
+      strengthBonus: false,
+    },
+  },
   '9mm-round': {
     id: '9mm-round',
     name: '9mm round',
@@ -178,6 +249,15 @@ const ITEM_TABLE = {
     fg: '#d4a84a',
     kind: 'ammo',
     ammoType: '9mm',
+  },
+  '556-round': {
+    id: '556-round',
+    name: '5.56mm round',
+    plural: '5.56mm rounds',
+    glyph: ')',
+    fg: '#c8b070',
+    kind: 'ammo',
+    ammoType: '5.56mm',
   },
   // Armor: NetHack's `[`. DT is New Vegas's scaled to this game's smaller damage numbers.
   'merc-outfit': {
