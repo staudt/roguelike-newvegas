@@ -28,6 +28,12 @@ export interface TileDef {
    * over a doorway stands on floor, one over the void on bare ground. Overlays keep their own base.
    */
   baseAs?: string;
+  /** The tile this one becomes when someone opens it (a closed door opens to `openDoor`). */
+  opensTo?: string;
+  /** Colour on the editor's overview minimap, for tiles whose own background is too dark to show. */
+  editorColor?: string;
+  /** Whether the editor's palette offers this tile (default true). */
+  paintable?: boolean;
 }
 
 export const TILES: Record<string, TileDef> = {
@@ -44,6 +50,7 @@ export const TILES: Record<string, TileDef> = {
     glyph: '*',
     fg: PALETTE.rockFg,
     overlay: true,
+    editorColor: '#5a5650',
   },
   wall: {
     id: 'wall',
@@ -52,6 +59,7 @@ export const TILES: Record<string, TileDef> = {
     glyph: '#',
     fg: PALETTE.wallFg,
     overlay: true,
+    editorColor: '#b0845a',
   },
   // A closed door blocks movement and sight; bumping it opens it (see TurnManager). Once open it
   // is ordinary walkable, see-through floor, so a lit room is visible through its open door.
@@ -63,6 +71,8 @@ export const TILES: Record<string, TileDef> = {
     fg: PALETTE.doorFg,
     bg: PALETTE.doorBg,
     baseAs: 'floor',
+    opensTo: 'openDoor',
+    editorColor: PALETTE.doorFg,
   },
   openDoor: {
     id: 'openDoor',
@@ -72,6 +82,7 @@ export const TILES: Record<string, TileDef> = {
     fg: PALETTE.doorFg,
     bg: PALETTE.floorBg,
     baseAs: 'floor',
+    editorColor: PALETTE.doorFg,
   },
   floor: {
     id: 'floor',
@@ -181,3 +192,26 @@ export function tileWalkable(index: number): boolean {
 export function tileOpaque(index: number): boolean {
   return OPAQUE_BY_INDEX[index] ?? true;
 }
+
+/** The index each tile becomes when opened, or -1 for tiles that do not open. */
+const OPENS_TO_BY_INDEX: number[] = TILE_ORDER.map((id) => {
+  const target = tileDef(id).opensTo;
+  return target === undefined ? -1 : tileIndex(target);
+});
+
+/** The tile index this one turns into when opened (a closed door), or null if it does not open. */
+export function tileOpensTo(index: number): number | null {
+  const target = OPENS_TO_BY_INDEX[index] ?? -1;
+  return target < 0 ? null : target;
+}
+
+/** Whether bumping into this tile opens it (closed doors, gates...). */
+export function tileOpenable(index: number): boolean {
+  return (OPENS_TO_BY_INDEX[index] ?? -1) >= 0;
+}
+
+/** The tiles the editor palette offers, in TILE_ORDER with `void` (the eraser) last. */
+export const PAINTABLE_TILES: readonly string[] = [
+  ...TILE_ORDER.filter((id) => id !== 'void' && tileDef(id).paintable !== false),
+  'void',
+];

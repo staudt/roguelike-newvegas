@@ -14,7 +14,8 @@ import {
   type Direction,
   type Point,
 } from '../utils/geometry';
-import { canStep, getTileId, isWalkable } from '../world/GameMap';
+import { canStep, isWalkable } from '../world/GameMap';
+import { tileOpenable } from '../world/Tile';
 import { groundItemsAt } from './GroundItems';
 import { getActiveSpace, placeAt, type GameState } from './GameState';
 
@@ -44,7 +45,7 @@ export function planTravel(state: GameState, target: Point): PlanResult {
   const canMove = (from: Point, to: Point): boolean =>
     known(to) &&
     !creatureAt(space, to.x, to.y) &&
-    (getTileId(grid, to.x, to.y) === 'door' || canStep(grid, from, to));
+    (tileOpenable(grid.getTile(to.x, to.y)) || canStep(grid, from, to));
 
   const creature = creatureAt(space, target.x, target.y);
   if (creature) {
@@ -62,7 +63,7 @@ export function planTravel(state: GameState, target: Point): PlanResult {
   }
 
   if (known(target)) {
-    if (!isWalkable(grid, target.x, target.y) && getTileId(grid, target.x, target.y) !== 'door') {
+    if (!isWalkable(grid, target.x, target.y) && !tileOpenable(grid.getTile(target.x, target.y))) {
       return { refusal: null }; // a deliberate click on a wall: nothing to say
     }
     const found = searchPath(
@@ -108,7 +109,7 @@ export function planRun(state: GameState, direction: Direction): Point[] {
   let at: Point = { x: state.player.x, y: state.player.y };
   while (steps.length < RUN_MAX_STEPS) {
     const next = { x: at.x + v.x, y: at.y + v.y };
-    const door = getTileId(space.grid, next.x, next.y) === 'door';
+    const door = tileOpenable(space.grid.getTile(next.x, next.y));
     if (creatureAt(space, next.x, next.y) || (!door && !canStep(space.grid, at, next))) break;
     steps.push(next);
     at = next;

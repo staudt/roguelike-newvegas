@@ -1,6 +1,7 @@
 import { PATH_NODE_BUDGET } from '../config/constants';
 import { DIRECTION_VECTORS, type Point } from '../utils/geometry';
-import { canStep, getTileId, type MapGrid } from '../world/GameMap';
+import { canStep, type MapGrid } from '../world/GameMap';
+import { tileOpenable } from '../world/Tile';
 
 const NEIGHBOURS = Object.values(DIRECTION_VECTORS);
 
@@ -127,7 +128,7 @@ export function nextStepToward(
 
       const isGoal = next.x === to.x && next.y === to.y;
       if (!isGoal && blocked(next.x, next.y)) continue;
-      const door = opensDoors && getTileId(grid, next.x, next.y) === 'door';
+      const door = opensDoors && tileOpenable(grid.getTile(next.x, next.y));
       if (!door && !canStep(grid, current, next) && !isGoal) continue;
 
       cameFrom.set(nextKey, currentKey);

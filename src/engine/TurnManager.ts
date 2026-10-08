@@ -9,7 +9,8 @@ import { itemWithArticle } from '../items/Item';
 import { isWieldable, itemDef } from '../items/ItemData';
 import { addPoints, type Direction, DIRECTION_VECTORS } from '../utils/geometry';
 import { defaultRNG, type RNG } from '../utils/RNG';
-import { canStep, getTileId, setTileId } from '../world/GameMap';
+import { canStep, setTileId } from '../world/GameMap';
+import { tileIdOf, tileOpenable, tileOpensTo } from '../world/Tile';
 import { readyAmmoForWielded } from './Ammo';
 import { playerAttacks } from './Combat';
 import { describeGroundHere } from './GroundItems';
@@ -98,8 +99,9 @@ export function tryMovePlayer(
   if (creature) return bumpCreature(state, creature, events, rng);
 
   // Walking into a closed door opens it (takes the turn, and you stay put) — NetHack's rule.
-  if (getTileId(space.grid, target.x, target.y) === 'door') {
-    setTileId(space.grid, target.x, target.y, 'openDoor');
+  const targetTile = space.grid.getTile(target.x, target.y);
+  if (tileOpenable(targetTile)) {
+    setTileId(space.grid, target.x, target.y, tileIdOf(tileOpensTo(targetTile)!));
     addMessage(state, 'You open the door.');
     advanceTurn(state, events, rng);
     return true;

@@ -3,7 +3,8 @@ import { GROUND_LEVELS, MAX_GROUND_HEIGHT, PALETTE } from '../config/palette';
 import { linePoints, type Point } from '../utils/geometry';
 import { CHUNK_SIZE } from '../world/ChunkedMap';
 import type { ChunkJSON } from '../world/ChunkCodec';
-import { TILES, VOID_TILE, tileIdOf, tileIndex, visualFor } from '../world/Tile';
+import { PAINTABLE_TILES, TILES, VOID_TILE, tileDef, tileIdOf, tileIndex, visualFor } from '../world/Tile';
+import { isConnectedWall } from '../ui/WallGlyphs';
 import type { TileMap } from '../world/TileMap';
 import {
   buildBuilding,
@@ -68,7 +69,6 @@ type Mode = 'tile' | 'height' | 'npc' | 'monster' | 'item' | 'transition';
 type TileTool = 'pencil' | 'line' | 'rect' | 'box' | 'building' | 'fill' | 'pick';
 type HeightTool = 'raise' | 'lower' | 'set';
 
-const PAINTABLE_TILES = ['ground', 'rock', 'wall', 'door', 'openDoor', 'floor', 'road', 'void'] as const;
 
 const MINIMAP_MAX_W = 220;
 const MINIMAP_MAX_H = 170;
@@ -446,7 +446,7 @@ async function boot(): Promise<void> {
         ctx.fillRect(px, py, cellW, cell);
         if (!text) continue;
         ctx.fillStyle = visual.fg;
-        ctx.fillText(id === 'wall' ? wallGlyphAt(map, x, y) : visual.glyph, px + cellW / 2, py + cell / 2);
+        ctx.fillText(isConnectedWall(id) ? wallGlyphAt(map, x, y) : visual.glyph, px + cellW / 2, py + cell / 2);
       }
     }
 
@@ -749,12 +749,9 @@ async function boot(): Promise<void> {
         const key = (tile * 256 + base) * 16 + height;
         let color = colors.get(key);
         if (color === undefined) {
-          color = visualFor(tileIdOf(tile), height, tileIdOf(base)).bg;
-          // Walls and doors are dark on dark; lighten them so structures show on the overview.
+          // Walls and doors are dark on dark; their editorColor lets structures show on the overview.
           const id = tileIdOf(tile);
-          if (id === 'wall') color = '#b0845a';
-          else if (id === 'door' || id === 'openDoor') color = PALETTE.doorFg;
-          else if (id === 'rock') color = '#5a5650';
+          color = tileDef(id).editorColor ?? visualFor(id, height, tileIdOf(base)).bg;
           colors.set(key, color);
         }
         m.fillStyle = color;

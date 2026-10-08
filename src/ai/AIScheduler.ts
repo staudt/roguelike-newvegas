@@ -21,7 +21,8 @@ import { creatureAt } from '../entities/Creature';
 import { hasLineOfSight } from '../fov/LineOfSight';
 import { chebyshevDistance, DIRECTION_VECTORS, type Point } from '../utils/geometry';
 import { randomInt, type RNG } from '../utils/RNG';
-import { canStep, getTileId, setTileId } from '../world/GameMap';
+import { canStep, setTileId } from '../world/GameMap';
+import { tileIdOf, tileOpenable, tileOpensTo } from '../world/Tile';
 import { cellKey, fleeStep, nextStepToward } from './Pathfinding';
 
 const STEP_VECTORS = Object.values(DIRECTION_VECTORS);
@@ -98,8 +99,9 @@ function moveTo(occupancy: Occupancy, creature: Creature, x: number, y: number):
  */
 function takeStep(state: GameState, creature: Creature, step: Point, occupancy: Occupancy): void {
   const grid = getActiveSpace(state).grid;
-  if (creature.opensDoors && getTileId(grid, step.x, step.y) === 'door') {
-    setTileId(grid, step.x, step.y, 'openDoor');
+  const stepTile = grid.getTile(step.x, step.y);
+  if (creature.opensDoors && tileOpenable(stepTile)) {
+    setTileId(grid, step.x, step.y, tileIdOf(tileOpensTo(stepTile)!));
     if (canSee(state, creature)) addMessage(state, `${capitalize(theName(creature))} opens the door.`);
     return;
   }

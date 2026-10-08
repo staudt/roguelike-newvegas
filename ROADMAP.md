@@ -152,7 +152,8 @@ Ahead of many more creatures, factions, tiles and items. In order:
 4. Done: A* in `nextStepToward`. On the real map it finds 230/230 reachable hunts (BFS on the same 600-node budget
    found 57, none past 40 steps) in a third of the time. Hunters and gunshot investigators now arrive from far off.
    A shared distance map per tick is only worth it once many hunters chase at once; measure first.
-5. Tile behaviour from data: `opensTo` for doors/gates, editor palette and overview colours from `TILES`.
+5. Done: tile behaviour from data: `opensTo` (doors; gates and locked doors later), `editorColor`, `paintable`;
+   the editor palette and overview colours come from `TILES`.
 6. Done: faction relations live in `FactionDef` (`beast`, `enemies` listed on one side), and `factionRelation`
    is a lookup in a table built once at load, ready for per-pair infighting checks.
 7. Per-chunk creatures/items (also in Scale follow-ups); instance ids unique across spaces before save/load.
