@@ -19,7 +19,7 @@ import {
   type DoorSide,
 } from '../world/buildingTemplate';
 import { INTERACTION_LABELS, type InteractionId } from '../entities/Npc';
-import { MONSTERS, monsterStartsHostile } from '../entities/MonsterData';
+import { CREATURES, startsHostile } from '../entities/CreatureData';
 import { ITEMS, type ItemDef } from '../items/ItemData';
 import {
   FILL_CAP,
@@ -195,7 +195,7 @@ async function boot(): Promise<void> {
   let selectedNpcId: string | null = null;
   let selectedTransition: EditableTransition | null = null;
   let selectedMonster: EditableMonster | null = null;
-  let brushMonster: string = Object.keys(MONSTERS)[0]!;
+  let brushMonster: string = Object.keys(CREATURES)[0]!;
   let selectedItem: EditableGroundItem | null = null;
   let brushItem: string = Object.keys(ITEMS)[0]!;
   /** Stack size for newly placed / carried ammo. */
@@ -458,9 +458,9 @@ async function boot(): Promise<void> {
     }
     drawItems();
     for (const monster of doc.monsters) {
-      const def = MONSTERS[monster.defId];
+      const def = CREATURES[monster.defId];
       drawMarker(monster.x, monster.y, def?.glyph ?? '?', def?.fg ?? PALETTE.hostileRing, monster === selectedMonster);
-      if (def && monsterStartsHostile(def)) drawRing(monster.x, monster.y);
+      if (def && startsHostile(def)) drawRing(monster.x, monster.y);
     }
     for (const npc of doc.npcs) {
       drawMarker(npc.x, npc.y, '@', npc.fg ?? PALETTE.npcFg, npc.id === selectedNpcId);
@@ -1480,7 +1480,7 @@ async function boot(): Promise<void> {
     wrap.append(buildHint('Pick a type, then click an empty cell to place one. Click an existing monster to select it, drag to move. Delete/Backspace removes the selected monster.'));
     const list = document.createElement('div');
     list.className = 'monster-list';
-    for (const def of Object.values(MONSTERS)) {
+    for (const def of Object.values(CREATURES)) {
       const button = document.createElement('button');
       button.className = `monster-row${brushMonster === def.id ? ' on' : ''}`;
       const glyph = document.createElement('span');
@@ -1488,7 +1488,7 @@ async function boot(): Promise<void> {
       glyph.style.color = def.fg;
       glyph.textContent = def.glyph;
       const label = document.createElement('span');
-      label.textContent = monsterStartsHostile(def) ? def.name : `${def.name} (peaceful)`;
+      label.textContent = startsHostile(def) ? def.name : `${def.name} (peaceful)`;
       button.append(glyph, label);
       button.addEventListener('click', () => {
         brushMonster = def.id;
@@ -2035,15 +2035,15 @@ async function boot(): Promise<void> {
   function buildMonsterForm(monster: EditableMonster): HTMLElement {
     const form = document.createElement('div');
     form.className = 'form';
-    const def = MONSTERS[monster.defId];
+    const def = CREATURES[monster.defId];
 
     const info = document.createElement('div');
     info.className = 'id-display';
-    info.textContent = `${monster.defId} @ (${monster.x}, ${monster.y})${def && !monsterStartsHostile(def) ? ' (peaceful)' : ''}`;
+    info.textContent = `${monster.defId} @ (${monster.x}, ${monster.y})${def && !startsHostile(def) ? ' (peaceful)' : ''}`;
     form.append(info);
 
     const typeSelect = document.createElement('select');
-    for (const entry of Object.values(MONSTERS)) {
+    for (const entry of Object.values(CREATURES)) {
       const option = document.createElement('option');
       option.value = entry.id;
       option.textContent = entry.name;

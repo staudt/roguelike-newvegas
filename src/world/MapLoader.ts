@@ -41,7 +41,8 @@ export interface SpaceJSON {
     fg?: string;
     /** Omitted means just 'talk'. More than one opens a menu on bump. */
     interactions?: InteractionId[];
-    /** Optional overrides of the built-in profile (see NpcData). */
+    /** Optional overrides of the built-in profile (see NpcData). `kind` is a creature kind (see CreatureData). */
+    kind?: string;
     faction?: FactionId;
     temperament?: Temperament;
     nerve?: Nerve;
@@ -67,6 +68,7 @@ function buildEntities(data: EntityJSON) {
   const npcs = data.npcs.map((n) => {
     const profile: NpcProfile = {
       ...npcProfile(n.id),
+      ...(n.kind ? { kind: n.kind } : {}),
       ...(n.faction ? { faction: n.faction } : {}),
       ...(n.temperament ? { temperament: n.temperament } : {}),
       ...(n.nerve ? { nerve: n.nerve } : {}),

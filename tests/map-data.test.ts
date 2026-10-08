@@ -148,22 +148,24 @@ describe('world.json + chunks places', () => {
     world.monsters = []; // keep the walk deterministic: no wildlife wandering through the open door
     const state = createGameState(createPlayer(9, 15), { world }, 'world'); // street east of Doc's door at (7,15)
     const events = new EventBus<GameEvents>();
+    // Nobody wanders (Doc would sometimes step away from his spot before the bump).
+    const still = () => 0.999;
     const seen: string[] = [];
     events.on('npc-menu', () => seen.push('npc-menu'));
     events.on('space-changed', (p) => seen.push(`space:${p.spaceId}`));
 
-    expect(tryMovePlayer(state, 'W', events)).toBe(true); // (8,15) street
-    expect(tryMovePlayer(state, 'W', events)).toBe(true); // bump: door opens
+    expect(tryMovePlayer(state, 'W', events, still)).toBe(true); // (8,15) street
+    expect(tryMovePlayer(state, 'W', events, still)).toBe(true); // bump: door opens
     expect(state.player).toMatchObject({ x: 8, y: 15 });
     expect(getTileId(world.grid, 7, 15)).toBe('openDoor');
-    expect(tryMovePlayer(state, 'W', events)).toBe(true); // (7,15) the doorway
+    expect(tryMovePlayer(state, 'W', events, still)).toBe(true); // (7,15) the doorway
     expect(state.messageLog.at(-1)).toBe("You enter Doc Mitchell's House.");
-    expect(tryMovePlayer(state, 'W', events)).toBe(true); // (6,15)
-    expect(tryMovePlayer(state, 'W', events)).toBe(true); // (5,15)
-    expect(tryMovePlayer(state, 'W', events)).toBe(false); // bump Doc at (4,15)
+    expect(tryMovePlayer(state, 'W', events, still)).toBe(true); // (6,15)
+    expect(tryMovePlayer(state, 'W', events, still)).toBe(true); // (5,15)
+    expect(tryMovePlayer(state, 'W', events, still)).toBe(false); // bump Doc at (4,15)
     expect(state.player).toMatchObject({ x: 5, y: 15 });
 
-    for (let i = 0; i < 3; i++) expect(tryMovePlayer(state, 'E', events)).toBe(true); // 6, 7, 8
+    for (let i = 0; i < 3; i++) expect(tryMovePlayer(state, 'E', events, still)).toBe(true); // 6, 7, 8
     expect(state.player).toMatchObject({ x: 8, y: 15 });
     expect(state.messageLog.at(-1)).toBe("You leave Doc Mitchell's House.");
     expect(state.activeSpaceId).toBe('world');

@@ -23,7 +23,8 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
   (commands, `advanceTurn`), `Combat` (melee/shots), `Kick`, `Items`, `GameState`.
 - `src/combat` — pure rules: `CombatFormulas` (to-hit, speed, aim bands, crowding), `CombatResolver`,
   `Limbs`, `Narration`. `src/ai` — creature turns and pathfinding. `src/fov` — height-aware line of sight.
-- `src/items`, `src/entities` — data-driven defs (`ItemData`, `MonsterData`) plus carrying/loadouts.
+- `src/items`, `src/entities` — data-driven defs (`ItemData`, `CreatureData`) plus carrying/loadouts. `CreatureData` holds every creature
+  kind, beasts and people; a named NPC is a kind (default `townsperson`, see `NpcData`) plus name and dialogue.
 - `src/world` — tiles, heights, chunked world (`ChunkedMap`; `ChunkStreamer` keeps the chunks around the
   player loaded and preserves dirty/explored state on unload). Map data: `src/world/goodsprings/world.json`
   (places, creatures, items) plus one file per chunk in `goodsprings/chunks/` (`<cx>_<cy>.json`).
@@ -69,6 +70,10 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
   tests that assume strength 5 / agility 7 (`kick.test`, `gun-accuracy.test`, `combat-*`).
 - **Creature size / mass / speed**: gun to-hit (`targetEvasion`), kick knockback (`SIZE_MASS`, `mass`),
   stagger after a kick, AI action counts. Any new monster needs size, speed and (if unusual) mass reviewed.
+- **Creature traits** (`opensDoors`, `social`, `wanderChance`, `wanderRadius` on `CreatureDef`, copied onto each creature
+  by `creatureStatsFrom`): AI and sound branch on these, never on `kind === 'npc'` (that is only for talking/menus).
+  `social` bundles alarms and relays, gunshot curiosity, joining fights, crying out, fight-or-flee stance and gun kiting.
+  A new behaviour that only some creatures have gets a trait, with its default in `traitsOf`.
 - **Objects on a base (rock, wall, future fences/safes)**: tiles with `overlay: true` draw only their glyph and take the
   background of what is under them. What they stand on is a tile in the map's base layer (`TileMap.getBase`, saved by name
   through the chunk palette as `bases`); the height stays the real terrain height (0 when the base is not ground-like).
@@ -82,7 +87,7 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
 - **Hostility** (`hostile` flag = runtime state; derived from `faction`/`temperament`/`state.standing` by
   `hostileToPlayer` in `entities/Factions.ts`, plus `nerve` for how provoked people fight): any blow, bullet or kick
   on a creature goes through `provoke` (`engine/Sound.ts`), never set `hostile` directly; noises go through
-  `emitSound`. New monsters need a faction and temperament; named NPCs get theirs in `NpcData`. Crowding penalty counts adjacent hostiles,
+  `emitSound`. New creature kinds need a faction (or null) and temperament; named NPCs override theirs in `NpcData`. Crowding penalty counts adjacent hostiles,
   noise alerts hostiles, kick/attack provoke, the red hostile ring, menus asking before attacking peacefuls.
 - **Wielded/alternate/readied**: `wieldItem`, `swapWeapons`, drop (`clearSlotsFor`), loadouts, inventory
   tags, command menu context, status bar. Wielding a gun auto-readies ammunition (`readyAmmoForWielded` in
@@ -92,7 +97,7 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
   clicks both feed it): anything new that should stop a walk (a new kind of alarm, hazard, event) belongs in
   `travelInterruption`. Clicks route over explored cells only, closed doors are routable, and unexplored targets
   get the nearest known cell plus `TRAVEL_PROBE_STEPS` straight on. A click never auto-attacks from a distance.
-- **Idle wandering** (`wander` in `AIScheduler`: animals roam, people stay within `NPC_WANDER_RADIUS` of `home`):
+- **Idle wandering** (`wander` in `AIScheduler`: `wanderChance` per action, within `wanderRadius` of `home`; animals roam):
   every idle creature rolls the RNG each action, so a test that spends a turn with a scripted RNG needs a roll per
   idle creature, or an RNG that never wanders (`() => 0.999`).
 - **Energy/speed system**: kick stagger subtracts `energy`; crippled legs, `MAX_ACTIONS_PER_TURN`.

@@ -5,9 +5,6 @@ import {
   LOSE_TRACK_FACTOR,
   MAX_ACTIONS_PER_TURN,
   NORMAL_SPEED,
-  NPC_WANDER_CHANCE,
-  NPC_WANDER_RADIUS,
-  PEACEFUL_WANDER_CHANCE,
   SIM_RADIUS,
 } from '../config/constants';
 import { GUN_KITE_CHANCE, UNARMED_FLEE_CHANCE, hostileToPlayer } from '../entities/Factions';
@@ -68,7 +65,7 @@ export function runCreatureTurns(state: GameState, rng: RNG, events: EventBus<Ga
 
       if (creature.hostile) {
         actAsHostile(state, creature, rng, events, occupancy);
-      } else if (creature.kind === 'monster') {
+      } else if (!creature.social) {
         wander(state, creature, rng, occupancy);
       } else if (!joinsTrouble(state, creature)) {
         if (creature.alarm === 'pending') relayAlarm(state, creature);
@@ -96,12 +93,12 @@ function moveTo(occupancy: Occupancy, creature: Creature, x: number, y: number):
 }
 
 /**
- * Takes the step a path search chose. People open a closed door in their way, which costs the action
- * and leaves them where they were; animals never get that far (their paths don't go through doors).
+ * Takes the step a path search chose. A door-opener opens a closed door in its way, which costs the
+ * action and leaves it where it was; animals never get that far (their paths don't go through doors).
  */
 function takeStep(state: GameState, creature: Creature, step: Point, occupancy: Occupancy): void {
   const grid = getActiveSpace(state).grid;
-  if (creature.kind === 'npc' && getTileId(grid, step.x, step.y) === 'door') {
+  if (creature.opensDoors && getTileId(grid, step.x, step.y) === 'door') {
     setTileId(grid, step.x, step.y, 'openDoor');
     if (canSee(state, creature)) addMessage(state, `${capitalize(theName(creature))} opens the door.`);
     return;
@@ -121,14 +118,14 @@ function isOccupied(state: GameState, occupancy: Occupancy, x: number, y: number
  */
 function joinsTrouble(state: GameState, npc: Creature): boolean {
   const space = getActiveSpace(state);
-  const sees = space.npcs.some(
-    (other) =>
-      other !== npc &&
-      other.hostile &&
-      other.provoked &&
-      chebyshevDistance(npc, other) <= npc.awareness &&
-      hasLineOfSight(space.grid, npc, other),
-  );
+  const witnessed = (other: Creature): boolean =>
+    other !== npc &&
+    other.social &&
+    other.hostile &&
+    other.provoked &&
+    chebyshevDistance(npc, other) <= npc.awareness &&
+    hasLineOfSight(space.grid, npc, other);
+  const sees = space.npcs.some(witnessed) || space.monsters.some(witnessed);
   if (!sees) return false;
 
   npc.hostile = true;
@@ -179,7 +176,7 @@ function actAsHostile(
     return;
   }
 
-  if (creature.kind === 'npc' && creature.provoked) {
+  if (creature.social && creature.provoked) {
     creature.stance ??= chooseStance(creature, rng);
     if (creature.stance === 'flee') {
       flee(state, creature, rng, events, occupancy, distance);
@@ -200,7 +197,7 @@ function actAsHostile(
     state.player,
     (x, y) => isOccupied(state, occupancy, x, y),
     undefined,
-    creature.kind === 'npc',
+    creature.opensDoors,
   );
   if (!step) return;
 
@@ -368,7 +365,7 @@ function actWithGun(
 
   // 3. A person with a gun keeps their distance from someone closing in, but not every turn.
   if (
-    creature.kind === 'npc' &&
+    creature.social &&
     chebyshevDistance(creature, state.player) < GUN_KEEP_DISTANCE &&
     randomInt(rng, 1, 100) <= GUN_KITE_CHANCE[creature.nerve] &&
     stepAway(state, creature, occupancy)
@@ -403,24 +400,25 @@ function actWithGun(
     state.player,
     (x, y) => isOccupied(state, occupancy, x, y),
     undefined,
-    creature.kind === 'npc',
+    creature.opensDoors,
   );
   if (approach) takeStep(state, creature, approach, occupancy);
   return true;
 }
 
 /**
- * Idle creatures drift about now and then; they never leave their space. Animals roam freely; a
- * person keeps within a few cells of home, so Doc is still by his bed and nobody wanders out of town.
+ * Idle creatures drift about now and then (`wanderChance`); they never leave their space. Animals
+ * roam freely; a person keeps within `wanderRadius` of home, so Doc is still by his bed and nobody
+ * wanders out of town.
  */
 function wander(state: GameState, creature: Creature, rng: RNG, occupancy: Occupancy): void {
-  if (randomInt(rng, 1, 100) > (creature.kind === 'npc' ? NPC_WANDER_CHANCE : PEACEFUL_WANDER_CHANCE)) return;
+  if (randomInt(rng, 1, 100) > creature.wanderChance) return;
 
   const space = getActiveSpace(state);
   const v = STEP_VECTORS[randomInt(rng, 0, STEP_VECTORS.length - 1)]!;
   const to = { x: creature.x + v.x, y: creature.y + v.y };
 
   if (!canStep(space.grid, creature, to) || isOccupied(state, occupancy, to.x, to.y)) return;
-  if (creature.kind === 'npc' && chebyshevDistance(to, creature.home) > NPC_WANDER_RADIUS) return;
+  if (creature.wanderRadius !== null && chebyshevDistance(to, creature.home) > creature.wanderRadius) return;
   moveTo(occupancy, creature, to.x, to.y);
 }

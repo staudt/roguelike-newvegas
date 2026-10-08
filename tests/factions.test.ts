@@ -10,7 +10,7 @@ import {
   startingStanding,
 } from '../src/entities/Factions';
 import { createMonster } from '../src/entities/Monster';
-import { MONSTERS, monsterStartsHostile } from '../src/entities/MonsterData';
+import { CREATURES, startsHostile } from '../src/entities/CreatureData';
 import { createNpc, type Npc, type NpcProfile } from '../src/entities/Npc';
 import { npcProfile } from '../src/entities/NpcData';
 import type { RNG } from '../src/utils/RNG';
@@ -67,10 +67,11 @@ describe('hostile on sight', () => {
     expect(hostileToPlayer('ncr', 'aggressive', standing)).toBe(false);
   });
 
-  it('every monster kind keeps the hostility it had before factions', () => {
-    for (const def of Object.values(MONSTERS)) {
-      expect(monsterStartsHostile(def)).toBe(def.id !== 'brahmin');
-      expect(FACTIONS[def.faction]).toBeDefined();
+  it('every creature kind keeps the hostility it had before factions', () => {
+    const peaceful = ['brahmin', 'townsperson'];
+    for (const def of Object.values(CREATURES)) {
+      expect(startsHostile(def)).toBe(!peaceful.includes(def.id));
+      if (def.faction !== null) expect(FACTIONS[def.faction]).toBeDefined();
     }
     expect(createMonster('b', 'brahmin', 0, 0).hostile).toBe(false);
     expect(createMonster('g', 'gecko', 0, 0).hostile).toBe(true);
