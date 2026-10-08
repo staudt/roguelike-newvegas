@@ -12,18 +12,38 @@ export type Nerve = 'bold' | 'steady' | 'timid';
 
 export type Relation = 'hostile' | 'neutral' | 'friendly';
 
+/** A faction, or 'civilian' for people who have none. */
+export type Party = FactionId | 'civilian';
+
 export interface FactionDef {
   id: FactionId;
   name: string;
   /** The player's standing with them at the start of a run: -100 (enemies) to 100. */
   startingStanding: number;
+  /** Beasts are hostile to everything that is not a beast, and neutral to each other. */
+  beast?: boolean;
+  /**
+   * Parties this faction is at war with, whoever the player is. List each pair on one side only:
+   * relations are symmetric. Anything not listed is neutral.
+   */
+  enemies?: Party[];
 }
 
 export const FACTIONS: Record<FactionId, FactionDef> = {
-  wildlife: { id: 'wildlife', name: 'Wildlife', startingStanding: -100 },
-  ghouls: { id: 'ghouls', name: 'Feral ghouls', startingStanding: -100 },
-  'powder-gangers': { id: 'powder-gangers', name: 'Powder Gangers', startingStanding: -100 },
-  ncr: { id: 'ncr', name: 'New California Republic', startingStanding: 0 },
+  wildlife: { id: 'wildlife', name: 'Wildlife', startingStanding: -100, beast: true },
+  ghouls: { id: 'ghouls', name: 'Feral ghouls', startingStanding: -100, beast: true },
+  'powder-gangers': {
+    id: 'powder-gangers',
+    name: 'Powder Gangers',
+    startingStanding: -100,
+    enemies: ['civilian'],
+  },
+  ncr: {
+    id: 'ncr',
+    name: 'New California Republic',
+    startingStanding: 0,
+    enemies: ['legion', 'powder-gangers'],
+  },
   legion: { id: 'legion', name: "Caesar's Legion", startingStanding: 0 },
 };
 
@@ -38,25 +58,31 @@ export function startingStanding(): Standing {
   return standing;
 }
 
-type Party = FactionId | 'civilian';
+/** Every party, civilians last. */
+export const PARTIES: readonly Party[] = [...(Object.keys(FACTIONS) as FactionId[]), 'civilian'];
 
-/** Beasts are hostile to everything that is not a beast; the rest is the table below. */
-const BEASTS: ReadonlySet<Party> = new Set<Party>(['wildlife', 'ghouls']);
-
-/** Pairs in standing conflict, whoever the player is. Anything not listed is neutral. */
-const AT_WAR: ReadonlyArray<readonly [Party, Party]> = [
-  ['ncr', 'legion'],
-  ['ncr', 'powder-gangers'],
-  ['powder-gangers', 'civilian'],
-];
+/** Relation of every party to every other, built once from the faction data: `TABLE[x][y]`. */
+const TABLE: Record<Party, Record<Party, Relation>> = (() => {
+  const isBeast = (p: Party): boolean => p !== 'civilian' && FACTIONS[p].beast === true;
+  const atWar = (x: Party, y: Party): boolean =>
+    (x !== 'civilian' && FACTIONS[x].enemies?.includes(y) === true) ||
+    (y !== 'civilian' && FACTIONS[y].enemies?.includes(x) === true);
+  const table = {} as Record<Party, Record<Party, Relation>>;
+  for (const x of PARTIES) {
+    const row = {} as Record<Party, Relation>;
+    for (const y of PARTIES) {
+      if (x === y) row[y] = 'friendly';
+      else if (isBeast(x) || isBeast(y)) row[y] = isBeast(x) && isBeast(y) ? 'neutral' : 'hostile';
+      else row[y] = atWar(x, y) ? 'hostile' : 'neutral';
+    }
+    table[x] = row;
+  }
+  return table;
+})();
 
 /** How two creatures' factions regard each other (`null` = no faction, an ordinary civilian). */
 export function factionRelation(a: FactionId | null, b: FactionId | null): Relation {
-  const x: Party = a ?? 'civilian';
-  const y: Party = b ?? 'civilian';
-  if (x === y) return 'friendly';
-  if (BEASTS.has(x) || BEASTS.has(y)) return BEASTS.has(x) && BEASTS.has(y) ? 'neutral' : 'hostile';
-  return AT_WAR.some(([p, q]) => (p === x && q === y) || (p === y && q === x)) ? 'hostile' : 'neutral';
+  return TABLE[a ?? 'civilian'][b ?? 'civilian'];
 }
 
 /**

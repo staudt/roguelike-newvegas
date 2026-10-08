@@ -8,6 +8,9 @@ import {
   factionRelation,
   hostileToPlayer,
   startingStanding,
+  type FactionId,
+  type Party,
+  type Relation,
 } from '../src/entities/Factions';
 import { createMonster } from '../src/entities/Monster';
 import { CREATURES, startsHostile } from '../src/entities/CreatureData';
@@ -51,6 +54,55 @@ describe('faction relations', () => {
     expect(factionRelation('powder-gangers', null)).toBe('hostile');
     expect(factionRelation('ncr', null)).toBe('neutral');
     expect(factionRelation('legion', 'powder-gangers')).toBe('neutral');
+  });
+});
+
+describe('the relation table', () => {
+  const parties = [...(Object.keys(FACTIONS) as FactionId[]), 'civilian' as const];
+  const asFaction = (p: Party): FactionId | null => (p === 'civilian' ? null : p);
+
+  // The rules as they were when relations lived in code.
+  function oldRelation(a: FactionId | null, b: FactionId | null): Relation {
+    const beasts = new Set<Party>(['wildlife', 'ghouls']);
+    const atWar: Array<[Party, Party]> = [
+      ['ncr', 'legion'],
+      ['ncr', 'powder-gangers'],
+      ['powder-gangers', 'civilian'],
+    ];
+    const x: Party = a ?? 'civilian';
+    const y: Party = b ?? 'civilian';
+    if (x === y) return 'friendly';
+    if (beasts.has(x) || beasts.has(y)) return beasts.has(x) && beasts.has(y) ? 'neutral' : 'hostile';
+    return atWar.some(([p, q]) => (p === x && q === y) || (p === y && q === x)) ? 'hostile' : 'neutral';
+  }
+
+  it('is symmetric for every pair of parties', () => {
+    for (const x of parties) {
+      for (const y of parties) {
+        expect(factionRelation(asFaction(x), asFaction(y)), `${x} / ${y}`).toBe(
+          factionRelation(asFaction(y), asFaction(x)),
+        );
+      }
+    }
+  });
+
+  it('equals the old rules for every pair', () => {
+    for (const x of parties) {
+      for (const y of parties) {
+        expect(factionRelation(asFaction(x), asFaction(y)), `${x} / ${y}`).toBe(
+          oldRelation(asFaction(x), asFaction(y)),
+        );
+      }
+    }
+  });
+
+  it('enemies name existing factions or civilians, and never the faction itself', () => {
+    for (const f of Object.values(FACTIONS)) {
+      for (const e of f.enemies ?? []) {
+        expect(parties, `${f.id} lists ${e}`).toContain(e);
+        expect(e).not.toBe(f.id);
+      }
+    }
   });
 });
 
