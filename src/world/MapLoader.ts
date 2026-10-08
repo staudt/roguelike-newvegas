@@ -10,7 +10,7 @@ import type { Point, Rect } from '../utils/geometry';
 import { VisibleSet } from '../fov/VisibleSet';
 import { ChunkedMap } from './ChunkedMap';
 import { decodeChunk, type ChunkJSON } from './ChunkCodec';
-import { FlatMap } from './FlatMap';
+import { FlatMap, decodeBases, encodeBases } from './FlatMap';
 import { tileIdOf, tileIndex } from './Tile';
 
 /**
@@ -28,8 +28,10 @@ export interface SpaceJSON {
   height: number;
   /** Row-major tile ids, length width*height. */
   tiles: string[];
-  /** Row-major terrain height 0..4, length width*height. Ignored for non-ground tiles. */
+  /** Row-major terrain height 0..3, length width*height. Ignored for non-ground tiles. */
   heights: number[];
+  /** Row-major tile each object stands on ('' for none), length width*height. Omitted means none. */
+  bases?: string[];
   npcs: Array<LoadoutJSON & {
     id: string;
     name: string;
@@ -137,6 +139,11 @@ export function loadSpace(data: SpaceJSON): Space {
       `Space "${data.id}": heights length ${data.heights.length} does not match ${data.width}x${data.height}`,
     );
   }
+  if (data.bases && data.bases.length !== expected) {
+    throw new Error(
+      `Space "${data.id}": bases length ${data.bases.length} does not match ${data.width}x${data.height}`,
+    );
+  }
 
   const grid = new FlatMap(
     data.width,
@@ -144,6 +151,7 @@ export function loadSpace(data: SpaceJSON): Space {
     data.worldOrigin ?? { x: 0, y: 0 },
     Uint8Array.from(data.tiles, (t) => tileIndex(t)),
     Uint8Array.from(data.heights),
+    decodeBases(data.bases, expected),
   );
 
   return {
@@ -169,6 +177,7 @@ export function serializeSpace(space: Space): SpaceJSON {
     height: grid.height,
     tiles: Array.from(grid.tiles, (t) => tileIdOf(t)),
     heights: Array.from(grid.heights),
+    ...(grid.bases.some((b) => b !== 0) ? { bases: encodeBases(grid.bases) } : {}),
     npcs: space.npcs.map((n) => ({
       id: n.id,
       name: n.name,

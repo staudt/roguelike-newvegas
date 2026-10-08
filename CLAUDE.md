@@ -1,4 +1,8 @@
-# New Vegas Roguelike — working notes for Claude Code
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## New Vegas Roguelike — working notes
 
 A NetHack-style roguelike set in Fallout: New Vegas (Goodsprings), TypeScript + Vite, rendered to a
 canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed from `main`).
@@ -6,7 +10,11 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
 
 ## Commands
 - `npm run dev` — game at `/`, map editor at `/editor.html`. `npm test` — vitest (gates the deploy).
+- One file: `npx vitest run tests/kick.test.ts`; one test by name: `npx vitest run -t "<test name>"`.
+  `npm run test:watch` for watch mode. Vitest occasionally flakes on a first run when the machine is busy; re-run.
 - `npm run build` — `tsc` + vite build. Always run `npx tsc --noEmit` and `npm test` before committing.
+  CI (`.github/workflows/deploy.yml`, Node 22) runs `npm test` then `npm run build` on every push to `main`
+  and deploys `dist` to Pages, so a red suite or type error blocks the live site.
 - Dev builds expose `window.__game` (state, spawn, give, teleport, press key…): use it to check a change
   in the real game instead of guessing.
 
@@ -16,8 +24,10 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
 - `src/combat` — pure rules: `CombatFormulas` (to-hit, speed, aim bands, crowding), `CombatResolver`,
   `Limbs`, `Narration`. `src/ai` — creature turns and pathfinding. `src/fov` — height-aware line of sight.
 - `src/items`, `src/entities` — data-driven defs (`ItemData`, `MonsterData`) plus carrying/loadouts.
-- `src/world` — tiles, heights, chunked world (`ChunkedMap`), map JSON in `src/world/goodsprings/`.
-  `src/editor` — the map editor. `src/ui` — renderer, menus, status bar, log. `src/config` — constants, palette.
+- `src/world` — tiles, heights, chunked world (`ChunkedMap`; `ChunkStreamer` keeps the chunks around the
+  player loaded and preserves dirty/explored state on unload). Map data: `src/world/goodsprings/world.json`
+  (places, creatures, items) plus one file per chunk in `goodsprings/chunks/` (`<cx>_<cy>.json`).
+  `src/editor` — the map editor (`MapDocument`). `src/ui` — renderer, menus, status bar, log. `src/config` — constants, palette.
 - Everything tunable lives in `src/config/constants.ts` or the data files. Prefer data and constants over
   special cases.
 
@@ -25,13 +35,13 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
 - Engine functions return whether a turn was spent and call `advanceTurn` themselves; a refused action is
   a message and no turn. The UI only maps keys to engine calls.
 - One player input = one log line group (`Game.groupInput`). Log lines name the weapon and the limb.
-- Randomness always comes from the passed `RNG`, so tests can script it (`scriptedRNG` in `tests/helpers`).
+- Randomness always comes from the passed `RNG`, so tests can script it (`scriptedRNG` in `tests/helpers/fixtures.ts`; `tests/helpers/world.ts` builds test worlds).
 - Terrain: ground and road carry a height 0–3 (`tileIsGround`, never compare to `GROUND_TILE` directly).
   Ground levels 0 and 1 share the `▒` texture and differ in colour (then `▓ █`), road reuses the ground's glyphs in greys, floor is a blank
   glyph (colour only, no dots). The ladder is `GROUND_LEVELS` in `config/palette.ts`; stored map heights follow it.
 - `tsconfig` has `erasableSyntaxOnly` (no constructor parameter properties). `vite` is pinned to `^7`
   (Node 22.4).
-- Windows checkout has CRLF; the byte-for-byte map round-trip tests (`map-document`, `editor-items`) fail
+- A Windows checkout has CRLF; there the byte-for-byte map round-trip tests (`map-document`, `editor-items`) fail
   locally for that reason only and pass on Linux CI. Don't "fix" them. Map JSON edited in the editor
   must not be committed together with code unless the map tests are updated with it.
 - Editing: Edit tool preferred over shell one-liners (shell escaping mangled template literals before).
@@ -60,9 +70,11 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
 - **Creature size / mass / speed**: gun to-hit (`targetEvasion`), kick knockback (`SIZE_MASS`, `mass`),
   stagger after a kick, AI action counts. Any new monster needs size, speed and (if unusual) mass reviewed.
 - **Objects on a base (rock, wall, future fences/safes)**: tiles with `overlay: true` draw only their glyph and take the
-  background of what is under them. Their height byte is a *base code* (`BASE_*` in `world/Tile.ts`: 0..3 ground, 4..7 road,
-  8 floor), not a terrain height; `MapDocument.paintTile` keeps the base when an object is painted over a cell. New object
-  tiles just set `overlay: true`. Re-check `visualFor`, `LineOfSight.groundHeightAt`, the editor overview colours.
+  background of what is under them. What they stand on is a tile in the map's base layer (`TileMap.getBase`, saved by name
+  through the chunk palette as `bases`); the height stays the real terrain height (0 when the base is not ground-like).
+  `MapDocument.paintTile` keeps the base when an object is painted over a cell (`baseAs` on a tile says what an object over
+  it stands on: door → floor). New object tiles just set `overlay: true`; any plain tile can be a base with no code change.
+  Re-check `visualFor`, `LineOfSight.groundHeightAt`, the editor overview colours.
 - **Terrain heights / new ground-like tiles**: `canStep`, `LineOfSight`, `Kick` slopes, renderer glyphs,
   editor palette, `TILE_ORDER` (append only). Gunshots use the same line of sight.
 - **Gun stats** (`effectiveRange`, bonuses): aim bands (`AIM_ZONES`), crowding penalty, creature gun AI
@@ -91,8 +103,7 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
 - Done: M1–M3 plus M3.5 (see `ROADMAP.md`), kick (`k`), alternate weapon (`x`), ghoul, road tile,
   height-aware line of sight with eye/target heights, two-line status bar under the log.
 - Known gaps: creatures knocked into each other do not fight each other (AI only targets the player);
-  "attacks affect aim" is not modelled; no ghoul placed in the
-  world map yet; SPECIAL is fixed.
+  "attacks affect aim" is not modelled; SPECIAL is fixed.
 - M4 steps 1–2 done: sound (`emitSound`), `provoke`, investigate/witness/flee AI, factions, temperament, nerve
   (see `ROADMAP.md`).
 - Next planned: M4 steps 3–4 (reputation and leaders, creature infighting), M5 multi-level buildings,

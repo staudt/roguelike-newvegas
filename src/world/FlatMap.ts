@@ -1,5 +1,5 @@
 import type { Point, Rect } from '../utils/geometry';
-import { tileIndex } from './Tile';
+import { tileIdOf, tileIndex } from './Tile';
 import type { TileMap } from './TileMap';
 
 /**
@@ -13,6 +13,7 @@ export class FlatMap implements TileMap {
   readonly origin: Point;
   readonly tiles: Uint8Array;
   readonly heights: Uint8Array;
+  readonly bases: Uint8Array;
   readonly explored: Uint8Array;
 
   constructor(
@@ -21,12 +22,14 @@ export class FlatMap implements TileMap {
     origin: Point = { x: 0, y: 0 },
     tiles?: Uint8Array,
     heights?: Uint8Array,
+    bases?: Uint8Array,
   ) {
     this.width = width;
     this.height = height;
     this.origin = { ...origin };
     this.tiles = tiles ?? new Uint8Array(width * height);
     this.heights = heights ?? new Uint8Array(width * height);
+    this.bases = bases ?? new Uint8Array(width * height);
     this.explored = new Uint8Array(width * height);
   }
 
@@ -60,6 +63,14 @@ export class FlatMap implements TileMap {
     if (this.has(x, y)) this.heights[this.index(x, y)] = height;
   }
 
+  getBase(x: number, y: number): number {
+    return this.has(x, y) ? this.bases[this.index(x, y)]! : 0;
+  }
+
+  setBase(x: number, y: number, base: number): void {
+    if (this.has(x, y)) this.bases[this.index(x, y)] = base;
+  }
+
   isExplored(x: number, y: number): boolean {
     return this.has(x, y) && this.explored[this.index(x, y)] === 1;
   }
@@ -79,4 +90,13 @@ export function createEmptyGrid(
   const map = new FlatMap(width, height, origin);
   map.tiles.fill(tileIndex(fillTileId));
   return map;
+}
+
+/** A flat space's base layer from its JSON names ('' = none). */
+export function decodeBases(names: string[] | undefined, length: number): Uint8Array {
+  return names ? Uint8Array.from(names, (n) => (n === '' ? 0 : tileIndex(n))) : new Uint8Array(length);
+}
+
+export function encodeBases(bases: Uint8Array): string[] {
+  return Array.from(bases, (b) => (b === 0 ? '' : tileIdOf(b)));
 }

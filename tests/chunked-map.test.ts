@@ -141,10 +141,26 @@ describe('chunk codec', () => {
     expect(Array.from(back.heights)).toEqual(Array.from(chunk.heights));
   });
 
+  it('round-trips the bases under objects by name, even a base no tile in the chunk uses', () => {
+    const chunk = createChunk(0, 0, GROUND_TILE);
+    chunk.tiles[7] = tileIndex('wall');
+    chunk.bases[7] = tileIndex('floor');
+    chunk.tiles[8] = tileIndex('rock');
+    chunk.bases[8] = tileIndex('road');
+    chunk.heights[8] = 2;
+
+    const json = encodeChunk(chunk);
+    expect(json.palette).toEqual(['ground', 'wall', 'rock', 'floor', 'road']);
+    const back = decodeChunk(JSON.parse(chunkToText(json)) as ChunkJSON);
+    expect(Array.from(back.bases)).toEqual(Array.from(chunk.bases));
+    expect(Array.from(back.heights)).toEqual(Array.from(chunk.heights));
+  });
+
   it('compresses open ground to a handful of numbers', () => {
     const json = encodeChunk(createChunk(0, 0, GROUND_TILE));
     expect(json.tiles).toEqual([4096, 0]);
     expect(json.heights).toEqual([4096, 0]);
+    expect(json.bases).toBeUndefined();
     expect(json.palette).toEqual(['ground']);
     expect(chunkToText(json).length).toBeLessThan(200);
   });

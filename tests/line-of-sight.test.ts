@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { hasLineOfSight } from '../src/fov/LineOfSight';
 import { createEmptyGrid, setHeight, setTileId } from '../src/world/GameMap';
+import { tileIndex } from '../src/world/Tile';
 
 describe('hasLineOfSight', () => {
   it('(a) sees clearly across flat open ground', () => {
@@ -57,6 +58,18 @@ describe('hasLineOfSight', () => {
     // The wall itself, as the endpoint, is visible...
     expect(hasLineOfSight(grid, { x: 0, y: 0 }, { x: 2, y: 0 })).toBe(true);
     // ...but anything strictly beyond it on the same line is not.
+    expect(hasLineOfSight(grid, { x: 0, y: 0 }, { x: 4, y: 0 })).toBe(false);
+  });
+
+  it('(e cont.) a rock stands at the height of the ground it sits on: on a hilltop it shows over a ridge', () => {
+    const grid = createEmptyGrid(5, 1, 'ground');
+    setHeight(grid, 2, 0, 2); // ridge between
+    setTileId(grid, 4, 0, 'rock');
+    grid.setBase(4, 0, tileIndex('ground'));
+    setHeight(grid, 4, 0, 3);
+    expect(hasLineOfSight(grid, { x: 0, y: 0 }, { x: 4, y: 0 })).toBe(true);
+    // The same rock on floor has no terrain height under it, so the ridge hides it.
+    grid.setBase(4, 0, tileIndex('floor'));
     expect(hasLineOfSight(grid, { x: 0, y: 0 }, { x: 4, y: 0 })).toBe(false);
   });
 

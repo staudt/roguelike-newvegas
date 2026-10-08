@@ -184,7 +184,7 @@ export class Renderer {
     const grid = space.grid;
     const tileId = tileIdOf(grid.getTile(worldX, worldY));
     const height = grid.getHeight(worldX, worldY);
-    const visual = visualFor(tileId, height);
+    const visual = visualFor(tileId, height, tileIdOf(grid.getBase(worldX, worldY)));
     const glyph = isConnectedWall(tileId) ? wallGlyph(grid, worldX, worldY) : visual.glyph;
 
     const screenX = sx * this.camera.cellW;

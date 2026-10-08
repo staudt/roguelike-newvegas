@@ -3,7 +3,7 @@ import { GROUND_LEVELS, MAX_GROUND_HEIGHT, PALETTE } from '../config/palette';
 import { linePoints, type Point } from '../utils/geometry';
 import { CHUNK_SIZE } from '../world/ChunkedMap';
 import type { ChunkJSON } from '../world/ChunkCodec';
-import { BASE_FLOOR, TILES, VOID_TILE, tileIdOf, tileIndex, visualFor } from '../world/Tile';
+import { TILES, VOID_TILE, tileIdOf, tileIndex, visualFor } from '../world/Tile';
 import type { TileMap } from '../world/TileMap';
 import {
   buildBuilding,
@@ -439,7 +439,7 @@ async function boot(): Promise<void> {
         const tile = map.getTile(x, y);
         if (tile === VOID_TILE) continue; // already black
         const id = tileIdOf(tile);
-        const visual = visualFor(id, map.getHeight(x, y));
+        const visual = visualFor(id, map.getHeight(x, y), tileIdOf(map.getBase(x, y)));
         const px = (x - camX) * cellW;
         const py = (y - camY) * cell;
         ctx.fillStyle = visual.bg;
@@ -625,7 +625,7 @@ async function boot(): Promise<void> {
         const px = sx(x);
         const py = sy(y);
         if (px + cellW < 0 || py + cell < 0 || px > canvas.width || py > canvas.height) continue;
-        const visual = visualFor('wall', BASE_FLOOR);
+        const visual = visualFor('wall', 0, 'floor');
         ctx.fillStyle = visual.bg;
         ctx.fillRect(px, py, cellW, cell);
         ctx.fillStyle = visual.fg;
@@ -745,10 +745,11 @@ async function boot(): Promise<void> {
         const tile = doc.map.getTile(wx, wy);
         if (tile === VOID_TILE) continue;
         const height = doc.map.getHeight(wx, wy);
-        const key = tile * 16 + height;
+        const base = doc.map.getBase(wx, wy);
+        const key = (tile * 256 + base) * 16 + height;
         let color = colors.get(key);
         if (color === undefined) {
-          color = visualFor(tileIdOf(tile), height).bg;
+          color = visualFor(tileIdOf(tile), height, tileIdOf(base)).bg;
           // Walls and doors are dark on dark; lighten them so structures show on the overview.
           const id = tileIdOf(tile);
           if (id === 'wall') color = '#b0845a';

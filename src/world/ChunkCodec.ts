@@ -14,6 +14,11 @@ export interface ChunkJSON {
   palette: string[];
   tiles: number[];
   heights: number[];
+  /**
+   * What each object (rock, wall) stands on: 0 for none, else 1 + a palette index, so bases are
+   * stored by tile name like the tiles are. Omitted when no cell has a base.
+   */
+  bases?: number[];
 }
 
 function rleEncode(data: Uint8Array): number[] {
@@ -47,6 +52,8 @@ export function encodeChunk(chunk: Chunk): ChunkJSON {
   // Palette in first-use order keeps the file stable across edits that don't introduce new tiles.
   const used: number[] = [];
   for (const t of chunk.tiles) if (!used.includes(t)) used.push(t);
+  const hasBases = chunk.bases.some((b) => b !== 0);
+  if (hasBases) for (const b of chunk.bases) if (b !== 0 && !used.includes(b)) used.push(b);
   const paletteIndex = new Map(used.map((t, i) => [t, i]));
   const mapped = Uint8Array.from(chunk.tiles, (t) => paletteIndex.get(t)!);
 
@@ -56,6 +63,9 @@ export function encodeChunk(chunk: Chunk): ChunkJSON {
     palette: used.map((t) => TILE_ORDER[t] ?? 'void'),
     tiles: rleEncode(mapped),
     heights: rleEncode(chunk.heights),
+    ...(hasBases
+      ? { bases: rleEncode(Uint8Array.from(chunk.bases, (b) => (b === 0 ? 0 : paletteIndex.get(b)! + 1))) }
+      : {}),
   };
 }
 
@@ -73,6 +83,15 @@ export function decodeChunk(json: ChunkJSON): Chunk {
     chunk.tiles[i] = mapped;
   }
   chunk.heights.set(rleDecode(json.heights, cells, `${where} height`));
+  if (json.bases) {
+    const bases = rleDecode(json.bases, cells, `${where} base`);
+    for (let i = 0; i < cells; i++) {
+      if (bases[i] === 0) continue;
+      const mapped = paletteToIndex[bases[i]! - 1];
+      if (mapped === undefined) throw new Error(`Chunk ${where} uses base ${bases[i]} out of range`);
+      chunk.bases[i] = mapped;
+    }
+  }
   return chunk;
 }
 
@@ -80,6 +99,8 @@ export function decodeChunk(json: ChunkJSON): Chunk {
 export function chunkToText(json: ChunkJSON): string {
   return (
     `{\n  "cx": ${json.cx},\n  "cy": ${json.cy},\n  "palette": ${JSON.stringify(json.palette)},\n` +
-    `  "tiles": ${JSON.stringify(json.tiles)},\n  "heights": ${JSON.stringify(json.heights)}\n}\n`
+    `  "tiles": ${JSON.stringify(json.tiles)},\n  "heights": ${JSON.stringify(json.heights)}` +
+    (json.bases ? `,\n  "bases": ${JSON.stringify(json.bases)}` : '') +
+    '\n}\n'
   );
 }
