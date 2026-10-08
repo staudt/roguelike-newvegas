@@ -4,7 +4,10 @@ import type { FactionId, Nerve, Temperament } from '../entities/Factions';
 import { createNpc, type InteractionId, type NpcProfile } from '../entities/Npc';
 import { npcProfile } from '../entities/NpcData';
 import { addGroundItem } from '../engine/GroundItems';
+import { GROUND_CONDITION } from '../config/constants';
+import { rollCondition, setConditionPercent } from '../items/Condition';
 import { createItem } from '../items/Item';
+import type { RNG } from '../utils/RNG';
 import { applyLoadout, loadoutOf, type LoadoutJSON } from '../items/Loadout';
 import type { Point, Rect } from '../utils/geometry';
 import { VisibleSet } from '../fov/VisibleSet';
@@ -49,8 +52,11 @@ export interface SpaceJSON {
   }>;
   /** Creatures placed from the monster table. Omitted means none. */
   monsters?: Array<LoadoutJSON & { defId: string; x: number; y: number }>;
-  /** Items lying on the floor. Omitted means none. */
-  items?: Array<{ defId: string; x: number; y: number; count?: number }>;
+  /**
+   * Items lying on the floor. Omitted means none. Weapons and armor may give `condition` in percent;
+   * otherwise they lie there used (GROUND_CONDITION).
+   */
+  items?: Array<{ defId: string; x: number; y: number; count?: number; condition?: number }>;
   transitions: Array<{ x: number; y: number; toSpace: string }>;
   /** Named rectangles (buildings, districts) shown as the Location. Omitted means none. */
   places?: Array<{ name: string; rect: Rect }>;
@@ -64,7 +70,11 @@ export interface SpaceJSON {
 
 type EntityJSON = Pick<SpaceJSON, 'npcs' | 'monsters' | 'transitions' | 'places' | 'items'>;
 
-function buildEntities(data: EntityJSON) {
+/**
+ * Creatures, NPCs and ground items from map data. `rng` rolls the condition of gear the map does
+ * not pin down (carried and lying about, both used); without one everything is as new.
+ */
+function buildEntities(data: EntityJSON, rng?: RNG) {
   const npcs = data.npcs.map((n) => {
     const profile: NpcProfile = {
       ...npcProfile(n.id),
@@ -74,17 +84,20 @@ function buildEntities(data: EntityJSON) {
       ...(n.nerve ? { nerve: n.nerve } : {}),
     };
     const npc = createNpc(n.id, n.name, n.x, n.y, n.dialogue, n.fg, n.interactions, profile);
-    applyLoadout(npc, n);
+    applyLoadout(npc, n, rng);
     return npc;
   });
   const monsters = (data.monsters ?? []).map((m, i) => {
     const monster = createMonster(`${m.defId}-${i + 1}`, m.defId, m.x, m.y);
-    applyLoadout(monster, m);
+    applyLoadout(monster, m, rng);
     return monster;
   });
   const space = { items: [] as GroundItem[] };
   for (const g of data.items ?? []) {
-    addGroundItem(space, g.x, g.y, createItem(g.defId, g.count));
+    const item = createItem(g.defId, g.count);
+    if (g.condition !== undefined) setConditionPercent(item, g.condition);
+    else if (rng) rollCondition(item, rng, GROUND_CONDITION);
+    addGroundItem(space, g.x, g.y, item);
   }
   return {
     npcs,
@@ -116,7 +129,7 @@ export function isWorldMeta(data: unknown): data is WorldMetaJSON {
 }
 
 /** Builds the outdoor world: an (initially) empty ChunkedMap filled from the given chunk files. */
-export function loadWorld(meta: WorldMetaJSON, chunkJsons: ChunkJSON[]): Space {
+export function loadWorld(meta: WorldMetaJSON, chunkJsons: ChunkJSON[], rng?: RNG): Space {
   const grid = new ChunkedMap();
   for (const json of chunkJsons) grid.addChunk(decodeChunk(json));
   return {
@@ -124,12 +137,12 @@ export function loadWorld(meta: WorldMetaJSON, chunkJsons: ChunkJSON[]): Space {
     name: meta.name,
     indoor: false,
     grid,
-    ...buildEntities(meta),
+    ...buildEntities(meta, rng),
     visible: VisibleSet.empty(),
   };
 }
 
-export function loadSpace(data: SpaceJSON): Space {
+export function loadSpace(data: SpaceJSON, rng?: RNG): Space {
   const expected = data.width * data.height;
   if (data.tiles.length !== expected) {
     throw new Error(
@@ -161,7 +174,7 @@ export function loadSpace(data: SpaceJSON): Space {
     name: data.name,
     indoor: data.indoor,
     grid,
-    ...buildEntities(data),
+    ...buildEntities(data, rng),
     visible: VisibleSet.empty(),
   };
 }

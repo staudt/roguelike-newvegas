@@ -4,8 +4,9 @@ import { narrateAttack, narrateShot, capitalize, type Party } from '../combat/Na
 import { creatureAt, theName, type Creature } from '../entities/Creature';
 import type { Player } from '../entities/Player';
 import { hasLineOfSight } from '../fov/LineOfSight';
-import { wieldedAttackProfile } from '../items/Carrying';
-import type { GunDef } from '../items/ItemData';
+import { consumeRound, damageThreshold, wieldedAttackProfile, wieldedItem } from '../items/Carrying';
+import { accuracyPenalty, damageFactor, rollJam } from '../items/Condition';
+import type { GunDef, ShotProfile } from '../items/ItemData';
 import { BARE_HANDS } from '../items/ItemData';
 import { chebyshevDistance, type Point } from '../utils/geometry';
 import type { RNG } from '../utils/RNG';
@@ -14,6 +15,7 @@ import type { EventBus, GameEvents } from './EventBus';
 import { addMessage, getActiveSpace, type GameState } from './GameState';
 import { dropCreatureItems } from './GroundItems';
 import { emitSound, provoke } from './Sound';
+import { wearArmorHit, wearWielded } from './Wear';
 
 export const YOU: Party = { name: 'you', isPlayer: true, possessive: 'your' };
 
@@ -51,9 +53,13 @@ export function playerAttacks(
   rng: RNG,
 ): void {
   const attack = playerAttackProfile(state.player);
-  const result = resolveMelee(rng, state.player, target, attack);
+  const result = resolveMelee(rng, state.player, target, attack, damageThreshold(target));
   for (const line of narrateAttack(YOU, partyFor(target), attack.weaponName, result)) {
     addMessage(state, line);
+  }
+  if (result.hit) {
+    wearWielded(state, state.player);
+    if (!result.killed) wearArmorHit(state, target, result.limb, result.absorbed);
   }
 
   provoke(state, target, result.killed);
@@ -74,12 +80,52 @@ export function creatureAttacks(
   events: EventBus<GameEvents>,
 ): void {
   const attack = creatureMeleeProfile(attacker);
-  const result = resolveMelee(rng, attacker, state.player, attack);
+  const result = resolveMelee(rng, attacker, state.player, attack, damageThreshold(state.player));
   for (const line of narrateAttack(partyFor(attacker), YOU, attack.weaponName, result)) {
     addMessage(state, line);
   }
+  if (result.hit) {
+    wearWielded(state, attacker);
+    if (!result.killed) wearArmorHit(state, state.player, result.limb, result.absorbed);
+  }
 
   if (result.killed) killPlayer(state, events);
+}
+
+/** The gun's shot as this copy of it fires: a worn gun hits softer and sprays wider. */
+function shotFrom(shooter: Player | Creature, gun: GunDef): ShotProfile {
+  const item = wieldedItem(shooter);
+  if (!item) return gun.shot;
+  const factor = damageFactor(item);
+  if (factor >= 1) return gun.shot;
+  return { ...gun.shot, accuracyBonus: gun.shot.accuracyBonus - accuracyPenalty(item), damageFactor: factor };
+}
+
+/**
+ * Squeezes the trigger of the wielded gun (the caller has checked it can fire). A worn gun may jam:
+ * the turn goes on clearing it and the round stays in the pack. Otherwise a round is spent, the
+ * shot flies, and the gun takes a shot's wear. Returns whether a shot was fired.
+ */
+export function pullTrigger(
+  state: GameState,
+  shooter: Player | Creature,
+  gun: GunDef,
+  step: Point,
+  rng: RNG,
+  events: EventBus<GameEvents>,
+): boolean {
+  const item = wieldedItem(shooter);
+  if (item && rollJam(item, rng)) {
+    if (shooter.kind === 'player') addMessage(state, `Your ${gun.name} jams! You clear it.`);
+    else if (getActiveSpace(state).visible.has(shooter.x, shooter.y)) {
+      addMessage(state, `${capitalize(theName(shooter))}'s ${gun.name} jams.`);
+    }
+    return false;
+  }
+  consumeRound(shooter);
+  fireProjectile(state, shooter, gun, step, rng, events);
+  wearWielded(state, shooter);
+  return true;
 }
 
 /**
@@ -139,6 +185,7 @@ export function fireProjectile(
 
   emitSound(state, shooter, 'gunshot', shooter, rng);
   const crowd = adjacentHostiles(state, shooter);
+  const shot = shotFrom(shooter, gun);
 
   const flight = shotPath(state, shooter, step, gun.range);
   const path: Point[] = [];
@@ -159,15 +206,17 @@ export function fireProjectile(
         warned = true;
         addMessage(state, 'You are too hemmed in to aim.');
       }
-      const result = resolveShot(rng, state.player, target, gun.shot, i + 1, crowd);
+      const result = resolveShot(rng, state.player, target, shot, i + 1, crowd, damageThreshold(target));
       for (const line of narrateShot(party, partyFor(target), gun.name, result)) addMessage(state, line);
+      if (result.hit && !result.killed) wearArmorHit(state, target, result.limb, result.absorbed);
       provoke(state, target, result.killed);
       if (result.killed) removeCreature(state, target, rng);
       if (result.hit) hitId = target.id;
     } else if (cell.x === state.player.x && cell.y === state.player.y) {
       rolled++;
-      const result = resolveShot(rng, shooter, state.player, gun.shot, i + 1, crowd);
+      const result = resolveShot(rng, shooter, state.player, shot, i + 1, crowd, damageThreshold(state.player));
       for (const line of narrateShot(party, YOU, gun.name, result)) addMessage(state, line);
+      if (result.hit && !result.killed) wearArmorHit(state, state.player, result.limb, result.absorbed);
       if (result.killed) killPlayer(state, events);
       if (result.hit) hitId = state.player.id;
     }

@@ -1,6 +1,7 @@
 import type { AttackProfile } from '../combat/Combatant';
+import { armorDT, damageFactor, isBroken } from './Condition';
 import { itemCount, type Item } from './Item';
-import { attackProfileFor, isWieldable, itemDef, type GunDef } from './ItemData';
+import { attackProfileFor, isWieldable, itemDef, type ArmorSlot, type GunDef } from './ItemData';
 import type { Carrier } from './Loadout';
 
 /** Pure helpers over anything that carries things (player, NPC, monster), shared with the UI. */
@@ -21,12 +22,39 @@ export function wieldedGun(c: Carrier): GunDef | null {
   return def.kind === 'gun' ? def : null;
 }
 
-/** What hitting someone with the wielded item does; null when nothing wieldable is wielded. */
+/** What hitting someone with the wielded item does (softer when it is worn); null when nothing wieldable is wielded. */
 export function wieldedAttackProfile(c: Carrier): AttackProfile | null {
   const item = wieldedItem(c);
   if (!item) return null;
   const def = itemDef(item.defId);
-  return isWieldable(def) ? attackProfileFor(def) : null;
+  if (!isWieldable(def)) return null;
+  const factor = damageFactor(item);
+  return factor < 1 ? { ...attackProfileFor(def), damageFactor: factor } : attackProfileFor(def);
+}
+
+/** The armor worn, in pack order. */
+export function wornItems(c: Carrier): Item[] {
+  return c.inventory.filter((i) => c.worn.includes(i.id));
+}
+
+/** The armor worn on `slot`, if any. */
+export function wornIn(c: Carrier, slot: ArmorSlot): Item | null {
+  return wornItems(c).find((i) => {
+    const def = itemDef(i.defId);
+    return def.kind === 'armor' && def.slot === slot;
+  }) ?? null;
+}
+
+/** Damage Threshold from everything worn (each piece by its condition), plus any natural hide. */
+export function damageThreshold(c: Carrier & { naturalDT?: number }): number {
+  let dt = c.naturalDT ?? 0;
+  for (const item of wornItems(c)) dt += armorDT(item);
+  return dt;
+}
+
+/** Usable: not broken. A broken weapon can't be wielded and broken armor can't be worn. */
+export function isUsable(item: Item): boolean {
+  return !isBroken(item);
 }
 
 export function readiedStack(c: Carrier): Item | null {
@@ -49,10 +77,13 @@ export function canFire(c: Carrier): FireCheck {
   if (!gun) return { ok: false, reason: 'You have no gun wielded.' };
 
   if (c.readied === null) {
-    const anyAmmo = c.inventory.some((i) => itemDef(i.defId).kind === 'ammo');
+    const fitting = c.inventory.some((i) => {
+      const def = itemDef(i.defId);
+      return def.kind === 'ammo' && def.ammoType === gun.ammoType && itemCount(i) > 0;
+    });
     return {
       ok: false,
-      reason: anyAmmo
+      reason: fitting
         ? 'You have no ammunition readied. (Press Q.)'
         : `You have no ammunition for the ${gun.name}.`,
     };
@@ -89,9 +120,10 @@ export function consumeRound(c: Carrier): void {
   c.readied = null;
 }
 
-/** A carrier loses an item from hands and quiver when it leaves the pack. */
+/** A carrier loses an item from hands, quiver and body when it leaves the pack (or breaks). */
 export function clearSlotsFor(c: Carrier, item: Item): void {
   if (c.wielded === item.id) c.wielded = null;
   if (c.readied === item.id) c.readied = null;
   if (c.alternate === item.id) c.alternate = null;
+  c.worn = c.worn.filter((id) => id !== item.id);
 }

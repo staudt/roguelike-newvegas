@@ -8,7 +8,7 @@ const ids = (c: Partial<CommandContext>) => buildCommandList({ ...none, ...c }).
 
 describe('buildCommandList', () => {
   it('starts with Wield when nothing is contextual', () => {
-    expect(ids({})).toEqual(['wield', 'inventory', 'sheet', 'fight', 'kick', 'run', 'wait', 'help', 'wear']);
+    expect(ids({})).toEqual(['wield', 'inventory', 'sheet', 'fight', 'kick', 'run', 'wait', 'help']);
   });
   it('offers Pick up only with items here', () => {
     expect(ids({ itemsHere: 1 })[0]).toBe('pickup');
@@ -37,10 +37,15 @@ describe('buildCommandList', () => {
   });
   it('omits Drop when nothing is droppable and keeps standard order', () => {
     expect(ids({})).not.toContain('drop');
-    expect(ids({ droppable: 2 })).toEqual(['wield', 'inventory', 'drop', 'sheet', 'fight', 'kick', 'run', 'wait', 'help', 'wear']);
+    expect(ids({ droppable: 2 })).toEqual(['wield', 'inventory', 'drop', 'sheet', 'fight', 'kick', 'run', 'wait', 'help']);
   });
-  it('greys only Wear', () => {
-    const rows = buildCommandList({ ...none, itemsHere: 1, droppable: 1 });
-    expect(rows.filter((r) => r.disabled).map((r) => r.id)).toEqual(['wear']);
+  it('greys nothing', () => {
+    const rows = buildCommandList({ ...none, itemsHere: 1, droppable: 1, wearable: 1, worn: 1 });
+    expect(rows.filter((r) => r.disabled)).toEqual([]);
+  });
+  it('offers Wear with armor to put on and Take off with armor worn, right after Wield', () => {
+    expect(ids({ wearable: 1 }).slice(0, 2)).toEqual(['wield', 'wear']);
+    expect(ids({ worn: 1 }).slice(0, 2)).toEqual(['wield', 'takeoff']);
+    expect(ids({ wearable: 1, worn: 1 }).slice(0, 3)).toEqual(['wield', 'wear', 'takeoff']);
   });
 });

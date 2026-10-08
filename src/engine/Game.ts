@@ -5,28 +5,31 @@ import { createMonster } from '../entities/Monster';
 import { INTERACTION_LABELS, type Npc } from '../entities/Npc';
 import { createPlayer } from '../entities/Player';
 import { InputManager } from '../input/InputManager';
-import { addToStack, createItem, isUndroppable, itemLabel, type Item } from '../items/Item';
-import { readiedAmmoCount, wieldedGun } from '../items/Carrying';
+import { addToStack, createItem, isUndroppable, type Item } from '../items/Item';
+import { damageThreshold, readiedAmmoCount, wieldedGun, wieldedItem, wornItems } from '../items/Carrying';
+import { isBroken } from '../items/Condition';
 import { isWieldable, itemDef } from '../items/ItemData';
 import { creatureAt } from '../entities/Creature';
 import { chebyshevDistance, directionBetween, type Direction, type Point } from '../utils/geometry';
+import { defaultRNG } from '../utils/RNG';
 import type { ChunkJSON } from '../world/ChunkCodec';
 import { ChunkStreamer, parseChunkPath, type ChunkCoord } from '../world/ChunkStreamer';
 import type { ChunkedMap } from '../world/ChunkedMap';
 import { isWorldMeta, loadSpace, loadWorld, type SpaceJSON, type WorldMetaJSON } from '../world/MapLoader';
-import { inventoryLetter, inventoryLines, itemTags, orderedInventory } from '../ui/itemLists';
+import { inventoryLetter, inventoryLines, itemListLabel, itemTags, orderedInventory } from '../ui/itemLists';
 import { Menu, type MenuAnchor, type MenuOption, type PanelLine } from '../ui/Menu';
 import { buildCommandList, type CommandRow } from '../ui/commandMenu';
 import { MessageLog } from '../ui/MessageLog';
 import type { MessageGroup } from '../ui/messageGroups';
 import { PALETTE } from '../config/palette';
 import { Renderer, captureScene, type SceneView } from '../ui/Renderer';
-import { limbShortName, StatusBar } from '../ui/StatusBar';
+import { formatDT, limbShortName, StatusBar } from '../ui/StatusBar';
 import { TRAVEL_STEP_MS } from '../config/constants';
 import { EventBus, type GameEvents } from './EventBus';
 import { addGroundItem, groundItemsAt } from './GroundItems';
 import { kickDirection } from './Kick';
 import { planRun, planTravel, snapshotTravel, travelInterruption } from './Travel';
+import { takeOffArmor, wearArmor } from './Apparel';
 import { dropItem, fireGun, pickUp, readyAmmo, useItem } from './Items';
 import {
   addMessage,
@@ -141,6 +144,7 @@ const HELP_LINES: PanelLine[] = [
   { text: ',             pick up' },
   { text: 'd             drop' },
   { text: 'w             wield a weapon, gun or bare hands' },
+  { text: 'W / T         wear / take off armor' },
   { text: 'Q             ready ammunition (free)' },
   { text: 'q             quaff / use a stimpak' },
   { text: 'i             inventory' },
@@ -229,10 +233,11 @@ export class Game {
   /** Fresh world from the map JSON. Always rebuilt from scratch: permadeath, no continue. */
   private buildState(): GameState {
     const spaces: Record<string, Space> = {};
-    const world = loadWorld(MAP_DATA.world, []);
+    // Map gear comes used: the run's RNG rolls each carried or dropped weapon's condition.
+    const world = loadWorld(MAP_DATA.world, [], defaultRNG);
     spaces[world.id] = world;
     for (const data of MAP_DATA.flat) {
-      const space = loadSpace(data);
+      const space = loadSpace(data, defaultRNG);
       spaces[space.id] = space;
     }
     this.streamer = new ChunkStreamer(world.grid as ChunkedMap, CHUNK_COORDS, (cx, cy) => {
@@ -429,7 +434,10 @@ export class Game {
         swapWeapons(this.state, this.events);
         break;
       case 'W':
-        addMessage(this.state, "You can't do that yet.");
+        this.openWearMenu();
+        break;
+      case 'T':
+        this.openTakeOffMenu();
         break;
       case 'f':
         this.setMode({ kind: 'direction', command: 'fire' });
@@ -543,6 +551,8 @@ export class Game {
       consumables: p.inventory.filter((i) => itemDef(i.defId).kind === 'consumable').length,
       droppable: p.inventory.filter((i) => !isUndroppable(i)).length,
       hasAlternate: p.alternate !== null || p.wielded !== null,
+      wearable: p.inventory.filter((i) => itemDef(i.defId).kind === 'armor' && !p.worn.includes(i.id) && !isBroken(i)).length,
+      worn: p.worn.length,
     });
   }
 
@@ -587,7 +597,7 @@ export class Game {
     const player = this.state.player;
     return items.map((item, i) => {
       const tags = itemTags(player, item).filter((t) => t !== "(can't drop)");
-      return { label: itemLabel(item), hotkey: inventoryLetter(i), hint: tags.join(' ') || undefined, ...extra?.(item) };
+      return { label: itemListLabel(item), hotkey: inventoryLetter(i), hint: tags.join(' ') || undefined, ...extra?.(item) };
     });
   }
 
@@ -621,7 +631,7 @@ export class Game {
     }
     const options: MenuOption[] = [
       { label: 'All of it', hotkey: '-' },
-      ...here.map((g, i) => ({ label: itemLabel(g.item), hotkey: inventoryLetter(i) })),
+      ...here.map((g, i) => ({ label: itemListLabel(g.item), hotkey: inventoryLetter(i) })),
     ];
     this.openItemMenu('Pick up what?', options, (index) => {
       pickUp(this.state, index === 0 ? 'all' : [here[index - 1]!.item.id], this.events);
@@ -689,6 +699,30 @@ export class Game {
     );
   }
 
+  private openWearMenu(): void {
+    const player = this.state.player;
+    const items = orderedInventory(player.inventory).filter(
+      (i) => itemDef(i.defId).kind === 'armor' && !player.worn.includes(i.id),
+    );
+    if (items.length === 0) {
+      addMessage(this.state, 'You have nothing to wear.');
+      return;
+    }
+    const options = this.itemOptions(items, (item) => (isBroken(item) ? { disabled: true, hint: '(broken)' } : {}));
+    this.openItemMenu('Wear what?', options, (index) => wearArmor(this.state, items[index]!.id, this.events));
+  }
+
+  private openTakeOffMenu(): void {
+    const items = wornItems(this.state.player);
+    if (items.length === 0) {
+      addMessage(this.state, 'You are not wearing anything.');
+      return;
+    }
+    this.openItemMenu('Take off what?', this.itemOptions(items), (index) =>
+      takeOffArmor(this.state, items[index]!.id, this.events),
+    );
+  }
+
   private showInventory(): void {
     this.menu.showPanel('Inventory', inventoryLines(this.state.player), 'Esc to close');
     this.setMode({ kind: 'panel' });
@@ -707,7 +741,10 @@ export class Game {
       { text: `  Agility      ${s.agility}` },
       { text: `  Luck         ${s.luck}` },
       { text: '' },
-      { text: `HP ${Math.max(0, p.hp)}/${p.maxHp}    AC ${p.ac}`, cls: p.hp < p.maxHp * 0.3 ? 'danger' : 'head' },
+      {
+        text: `HP ${Math.max(0, p.hp)}/${p.maxHp}    AC ${p.ac}    DT ${formatDT(damageThreshold(p))}`,
+        cls: p.hp < p.maxHp * 0.3 ? 'danger' : 'head',
+      },
       { text: 'Limbs', cls: 'head' },
       ...p.limbs.map((limb) => {
         const cond = limbCondition(limb);
@@ -717,6 +754,11 @@ export class Game {
         };
       }),
     ];
+    const gear = [wieldedItem(p), ...wornItems(p)].filter((i) => i !== null);
+    if (gear.length > 0) {
+      lines.push({ text: '' }, { text: 'Gear', cls: 'head' });
+      for (const item of gear) lines.push({ text: `  ${itemListLabel(item)}` });
+    }
     this.menu.showPanel(p.name, lines, 'Esc to close');
     this.setMode({ kind: 'panel' });
   }

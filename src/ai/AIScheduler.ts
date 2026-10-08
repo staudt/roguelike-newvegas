@@ -10,11 +10,11 @@ import {
 import { GUN_KITE_CHANCE, UNARMED_FLEE_CHANCE, hostileToPlayer } from '../entities/Factions';
 import { theName, type Creature } from '../entities/Creature';
 import { capitalize } from '../combat/Narration';
-import { creatureAttacks, fireProjectile, shotPath } from '../engine/Combat';
+import { creatureAttacks, pullTrigger, shotPath } from '../engine/Combat';
 import { emitSound, relayAlarm } from '../engine/Sound';
 import type { EventBus, GameEvents } from '../engine/EventBus';
 import { addMessage, getActiveSpace, type GameState } from '../engine/GameState';
-import { canFire, consumeRound, findItem, readiedStack, wieldedGun, wieldedItem } from '../items/Carrying';
+import { canFire, findItem, isUsable, readiedStack, wieldedGun, wieldedItem } from '../items/Carrying';
 import { itemCount, type Item } from '../items/Item';
 import { itemDef, type GunDef } from '../items/ItemData';
 import { creatureAt } from '../entities/Creature';
@@ -266,7 +266,7 @@ interface UsableGun {
 /** A gun in the pack that has matching ammunition in the pack too. Prefers the wielded one. */
 function findUsableGun(creature: Creature): UsableGun | null {
   const candidates = creature.inventory
-    .filter((i) => itemDef(i.defId).kind === 'gun')
+    .filter((i) => itemDef(i.defId).kind === 'gun' && isUsable(i))
     .sort((a, b) => Number(b.id === creature.wielded) - Number(a.id === creature.wielded));
   for (const item of candidates) {
     const def = itemDef(item.defId) as GunDef;
@@ -357,7 +357,7 @@ function actWithGun(
   // 2. Out of ammunition: put the gun away and fall back on the next best thing.
   if (!check.ok) {
     const gun = findItem(creature, creature.wielded)!;
-    const melee = creature.inventory.find((i) => i !== gun && itemDef(i.defId).kind === 'weapon');
+    const melee = creature.inventory.find((i) => i !== gun && itemDef(i.defId).kind === 'weapon' && isUsable(i));
     creature.wielded = melee ? melee.id : null;
     if (canSee(state, creature)) {
       addMessage(state, `${capitalize(theName(creature))}'s ${wielded.name} is out of ammo.`);
@@ -378,8 +378,7 @@ function actWithGun(
   // 3b. A clear shot: take it.
   const step = clearShot(state, creature, creature, check.gun.range);
   if (step) {
-    consumeRound(creature);
-    fireProjectile(state, creature, check.gun, step, rng, events);
+    pullTrigger(state, creature, check.gun, step, rng, events);
     return true;
   }
 

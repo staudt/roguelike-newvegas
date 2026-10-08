@@ -135,6 +135,17 @@ gun readies its ammunition automatically (the kind last used with that gun, else
 - Editor: "Add floor" on a building (new file, stair tiles placed on both floors), and the Building
   tool grows a floor count.
 
+### Item condition and armor (done; repair next)
+New Vegas rules, scaled to this game: weapons, guns and armor have `durability` points. A shot or a landed blow
+costs `WEAR_PER_ATTACK`; armor loses 35% of the damage it stops, on the piece over the struck spot (head piece for
+head hits, body piece otherwise). Worn guns keep 66% of their damage at 0%, melee 50%; guns also lose up to 20 to-hit
+points and below 50% can jam (up to 20% a shot; the turn goes, the round stays). Armor: a body and a head slot,
+`W`/`T`, DT summed with a creature's natural hide; at least 20% of a hit always lands; DT falls to half as the
+piece wears. Broken (0%) things come off and can't be used. Map gear starts used (carried 20-70%, ground 30-90%;
+`condition` in percent pins it). Firing or picking up readies ammo that fits the gun in hand.
+Next: repair (combine with a copy of the same item, a Repair skill later), the editor's UI for `wear` and
+`condition` (they already survive a save), armor and weapon prices once there is trade.
+
 ### Later
 VATS (limb targeting at an AP cost; the limb system is the groundwork) → quests learned from overheard
 monologues → save/load (spaces serialize independently, which multi-level needs anyway) → larger map,

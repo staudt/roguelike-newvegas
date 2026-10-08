@@ -24,6 +24,7 @@ function hit(l: Limb, overrides: Partial<AttackResult> = {}): AttackResult {
     limbBefore: 'ok',
     limbAfter: 'ok',
     killed: false,
+    absorbed: 0,
     ...overrides,
   };
 }
@@ -35,6 +36,7 @@ const MISS: AttackResult = {
   limbBefore: null,
   limbAfter: null,
   killed: false,
+  absorbed: 0,
 };
 
 describe('narrateAttack', () => {

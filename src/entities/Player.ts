@@ -38,6 +38,8 @@ export interface Player extends Entity, Combatant {
   readied: string | null;
   /** Previously wielded weapon; `x` swaps back to it. */
   alternate: string | null;
+  /** Ids of the armor worn, one per slot (`W` / `T`). */
+  worn: string[];
   /** Per gun (item definition id), the ammunition (definition id) last readied with it, for auto-readying. */
   lastAmmo: Record<string, string>;
 }
@@ -75,6 +77,7 @@ export function createPlayer(x: number, y: number): Player {
     wielded: null,
     readied: null,
     alternate: null,
+    worn: [],
     lastAmmo: {},
   };
 }

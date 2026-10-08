@@ -7,7 +7,9 @@ import { DIRECTION_VECTORS, addPoints, type Direction, type Point } from '../uti
 import { defaultRNG, randomInt, type RNG } from '../utils/RNG';
 import { canStep, isWalkable } from '../world/GameMap';
 import { tileIsGround } from '../world/Tile';
+import { damageThreshold } from '../items/Carrying';
 import { partyFor, removeCreature, YOU } from './Combat';
+import { wearArmorHit } from './Wear';
 import type { EventBus, GameEvents } from './EventBus';
 import { addMessage, getActiveSpace, type GameState } from './GameState';
 import { provoke } from './Sound';
@@ -140,11 +142,12 @@ export function kickDirection(
     return false;
   }
 
-  const result = resolveMelee(rng, state.player, target, KICK);
+  const result = resolveMelee(rng, state.player, target, KICK, damageThreshold(target));
   for (const line of narrateAttack(YOU, partyFor(target), KICK.weaponName, result, { hit: 'kick', hits: 'kicks' })) {
     addMessage(state, line);
   }
 
+  if (result.hit && !result.killed) wearArmorHit(state, target, result.limb, result.absorbed);
   provoke(state, target, result.killed);
   if (result.killed) {
     removeCreature(state, target, rng);

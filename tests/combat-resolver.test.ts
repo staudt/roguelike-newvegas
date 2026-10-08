@@ -81,6 +81,7 @@ describe('resolveMelee — hit and miss', () => {
       limbBefore: null,
       limbAfter: null,
       killed: false,
+      absorbed: 0,
     });
     expect(JSON.stringify(defender)).toBe(before);
     expect(rng.consumed).toBe(1);

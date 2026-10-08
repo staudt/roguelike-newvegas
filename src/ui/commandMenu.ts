@@ -15,6 +15,10 @@ export interface CommandContext {
   droppable: number;
   /** An alternate weapon is set, so `x` has something to swap to. */
   hasAlternate?: boolean;
+  /** Armor in the pack that could be put on (not worn, not broken). */
+  wearable?: number;
+  /** Armor being worn. */
+  worn?: number;
 }
 
 export type CommandId =
@@ -32,7 +36,8 @@ export type CommandId =
   | 'swap'
   | 'wait'
   | 'help'
-  | 'wear';
+  | 'wear'
+  | 'takeoff';
 
 export interface CommandRow {
   id: CommandId;
@@ -58,7 +63,10 @@ export function buildCommandList(ctx: CommandContext): CommandRow[] {
     else context.push(use);
   }
 
-  const standard: CommandRow[] = [row('wield', 'Wield', 'w', 'standard'), row('inventory', 'Inventory', 'i', 'standard')];
+  const standard: CommandRow[] = [row('wield', 'Wield', 'w', 'standard')];
+  if (ctx.wearable) standard.push(row('wear', 'Wear', 'W', 'standard'));
+  if (ctx.worn) standard.push(row('takeoff', 'Take off', 'T', 'standard'));
+  standard.push(row('inventory', 'Inventory', 'i', 'standard'));
   if (ctx.droppable > 0) standard.push(row('drop', 'Drop', 'd', 'standard'));
   standard.push(
     row('sheet', 'Character sheet', 'C', 'standard'),
@@ -68,5 +76,5 @@ export function buildCommandList(ctx: CommandContext): CommandRow[] {
     row('wait', 'Wait', '.', 'standard'),
     row('help', 'Help', '?', 'standard'),
   );
-  return [...context, ...standard, row('wear', 'Wear', 'W', 'later', true)];
+  return [...context, ...standard];
 }

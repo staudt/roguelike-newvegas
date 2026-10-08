@@ -4,8 +4,9 @@ import type { AttackProfile, DamageRange, HitProfile } from '../combat/Combatant
  * Item definitions, data-driven like everything else.
  *
  * Kinds: a melee `weapon`; a `gun` (fires `ammo` of its `ammoType` along a straight line, and can
- * be used as a clumsy club); `ammo` (stacks); a `consumable` (stimpak); and `misc` (junk, quest
- * items). `flags` hold rules that cut across kinds — an `undroppable` item (the Pip-Boy, later
+ * be used as a clumsy club); `armor` (worn on the body or head); `ammo` (stacks); a `consumable`
+ * (stimpak); and `misc` (junk, quest items). Weapons, guns and armor wear out: each has a
+ * `durability` (condition points when new, see items/Condition). `flags` hold rules that cut across kinds — an `undroppable` item (the Pip-Boy, later
  * quest items) refuses to be dropped; an instance may override its definition's flags.
  */
 export interface ItemFlags {
@@ -26,7 +27,13 @@ interface ItemDefBase {
   flags?: ItemFlags;
 }
 
-export interface WeaponDef extends ItemDefBase {
+/** Things that wear out with use and break at 0 (see items/Condition). */
+interface Durable {
+  /** Condition points when new. Each shot or blow landed costs WEAR_PER_ATTACK; armor wears when hit. */
+  durability: number;
+}
+
+export interface WeaponDef extends ItemDefBase, Durable {
   kind: 'weapon';
   /** What the weapon does in melee. `weaponName` is filled in from `name`. */
   attack: Omit<AttackProfile, 'weaponName'>;
@@ -55,9 +62,11 @@ export interface ShotProfile {
   accuracyBonus: number;
   /** Guns aim for the middle of a person; some weapons spread wider. */
   hitProfile: HitProfile;
+  /** Multiplies the rolled damage: a worn gun hits softer. Absent means 1. */
+  damageFactor?: number;
 }
 
-export interface GunDef extends ItemDefBase {
+export interface GunDef extends ItemDefBase, Durable {
   kind: 'gun';
   /** Which ammunition it takes: ammo items with the same `ammoType`. */
   ammoType: string;
@@ -66,6 +75,22 @@ export interface GunDef extends ItemDefBase {
   shot: ShotProfile;
   /** Hitting someone with the gun itself. */
   butt: Omit<AttackProfile, 'weaponName'>;
+}
+
+export type ArmorSlot = 'body' | 'head';
+
+/** Where armor goes, in the order the game lists it. */
+export const ARMOR_SLOTS: readonly ArmorSlot[] = ['body', 'head'];
+
+/**
+ * Clothing and armor, New Vegas style: Damage Threshold comes off every hit (never below
+ * MIN_DAMAGE_FRACTION of it), summed over what you wear, and falls as the piece wears.
+ */
+export interface ArmorDef extends ItemDefBase, Durable {
+  kind: 'armor';
+  slot: ArmorSlot;
+  /** Damage Threshold at full condition. */
+  dt: number;
 }
 
 export interface AmmoDef extends ItemDefBase {
@@ -83,7 +108,8 @@ export interface MiscDef extends ItemDefBase {
   kind: 'misc';
 }
 
-export type ItemDef = WeaponDef | GunDef | AmmoDef | ConsumableDef | MiscDef;
+export type ItemDef = WeaponDef | GunDef | ArmorDef | AmmoDef | ConsumableDef | MiscDef;
+export type DurableDef = WeaponDef | GunDef | ArmorDef;
 export type ItemKind = ItemDef['kind'];
 
 const ITEM_TABLE = {
@@ -93,6 +119,7 @@ const ITEM_TABLE = {
     glyph: ')',
     fg: '#b8c4cc',
     kind: 'weapon',
+    durability: 120,
     attack: {
       damage: { min: 3, max: 6 },
       accuracyBonus: 5,
@@ -107,6 +134,7 @@ const ITEM_TABLE = {
     glyph: ')',
     fg: '#c9a46b',
     kind: 'weapon',
+    durability: 100,
     attack: {
       damage: { min: 4, max: 8 },
       accuracyBonus: -5,
@@ -121,6 +149,7 @@ const ITEM_TABLE = {
     glyph: ')',
     fg: '#8fa0b0',
     kind: 'gun',
+    durability: 150,
     ammoType: '9mm',
     range: 10,
     shot: {
@@ -149,6 +178,48 @@ const ITEM_TABLE = {
     fg: '#d4a84a',
     kind: 'ammo',
     ammoType: '9mm',
+  },
+  // Armor: NetHack's `[`. DT is New Vegas's scaled to this game's smaller damage numbers.
+  'merc-outfit': {
+    id: 'merc-outfit',
+    name: 'merc outfit',
+    glyph: '[',
+    fg: '#8a7a56',
+    kind: 'armor',
+    slot: 'body',
+    dt: 2,
+    durability: 100,
+  },
+  'leather-armor': {
+    id: 'leather-armor',
+    name: 'leather armor',
+    plural: 'leather armor',
+    glyph: '[',
+    fg: '#8a5a34',
+    kind: 'armor',
+    slot: 'body',
+    dt: 3,
+    durability: 150,
+  },
+  'cowboy-hat': {
+    id: 'cowboy-hat',
+    name: 'cowboy hat',
+    glyph: '[',
+    fg: '#a07040',
+    kind: 'armor',
+    slot: 'head',
+    dt: 1,
+    durability: 60,
+  },
+  'metal-helmet': {
+    id: 'metal-helmet',
+    name: 'metal helmet',
+    glyph: '[',
+    fg: '#9098a0',
+    kind: 'armor',
+    slot: 'head',
+    dt: 2,
+    durability: 120,
   },
   stimpak: {
     id: 'stimpak',
@@ -201,6 +272,11 @@ export function attackProfileFor(def: ItemDef): AttackProfile {
   if (def.kind === 'weapon') return { ...def.attack, weaponName: def.name };
   if (def.kind === 'gun') return { ...def.butt, weaponName: def.name };
   return BARE_HANDS;
+}
+
+/** Does this wear out (weapons, guns, armor)? */
+export function isDurable(def: ItemDef): def is DurableDef {
+  return def.kind === 'weapon' || def.kind === 'gun' || def.kind === 'armor';
 }
 
 /** Can this be wielded (weapons and guns)? Ammo, stimpaks and junk cannot. */

@@ -32,6 +32,13 @@ function armed(opts: ArenaOptions, ready = true) {
   return { ...arena, player, pistol, ammo };
 }
 
+/** Pistol in hand and no rounds at all: a shot is refused. */
+function dry(opts: ArenaOptions) {
+  const a = armed(opts, false);
+  a.player.inventory.splice(a.player.inventory.indexOf(a.ammo), 1);
+  return a;
+}
+
 function monsterAt(id: string, x: number, y: number, defId = 'gecko'): Monster {
   const m = createMonster(id, defId, x, y);
   return m;
@@ -177,12 +184,19 @@ describe('resolveShot', () => {
 
 describe('fireGun', () => {
   it('refusal: a message, no turn, nothing consumed', () => {
-    const a = armed({ width: 5, height: 1, player: { x: 0, y: 0 } }, false);
+    const a = dry({ width: 5, height: 1, player: { x: 0, y: 0 } });
     expect(fireGun(a.state, 'E', a.events, scriptedRNG([]))).toBe(false);
-    expect(a.state.messageLog).toEqual(['You have no ammunition readied. (Press Q.)']);
+    expect(a.state.messageLog).toEqual(['You have no ammunition for the 9mm pistol.']);
     expect(a.state.turnCount).toBe(0);
-    expect(a.ammo.count).toBe(24);
     expect(shots(a)).toEqual([]);
+  });
+
+  it('readies the rounds that fit by itself when none are readied, and fires', () => {
+    const a = armed({ width: 5, height: 1, player: { x: 0, y: 0 } }, false);
+    expect(fireGun(a.state, 'E', a.events, ALWAYS_HIT)).toBe(true);
+    expect(a.state.messageLog[0]).toBe('You ready 24 9mm rounds.');
+    expect(a.player.readied).toBe(a.ammo.id);
+    expect(a.ammo.count).toBe(23);
   });
 
   it('consumes a round, costs a turn, and a hit narrates with the gun name', () => {
@@ -381,7 +395,7 @@ describe('gunshot noise', () => {
 
   it('a refused shot makes no noise', () => {
     const near = monsterAt('near', 3, 3);
-    const a = armed({ width: 10, height: 10, player: { x: 0, y: 0 }, monsters: [near] }, false);
+    const a = dry({ width: 10, height: 10, player: { x: 0, y: 0 }, monsters: [near] });
     fireGun(a.state, 'S', a.events, ALWAYS_HIT);
     expect(near.alerted).toBe(false);
   });
@@ -398,7 +412,7 @@ describe('shot-fired event', () => {
   });
 
   it('is not emitted for a refused shot', () => {
-    const a = armed({ width: 5, height: 1, player: { x: 0, y: 0 } }, false);
+    const a = dry({ width: 5, height: 1, player: { x: 0, y: 0 } });
     fireGun(a.state, 'E', a.events, ALWAYS_HIT);
     expect(shots(a)).toEqual([]);
   });

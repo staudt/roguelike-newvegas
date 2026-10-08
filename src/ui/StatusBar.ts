@@ -1,7 +1,8 @@
 import { limbCondition } from '../combat/Limbs';
 import type { GameState } from '../engine/GameState';
 import { locationName } from '../engine/GameState';
-import { readiedStack, wieldedGun, wieldedItem } from '../items/Carrying';
+import { damageThreshold, readiedStack, wieldedGun, wieldedItem } from '../items/Carrying';
+import { conditionPercent } from '../items/Condition';
 import { itemCount } from '../items/Item';
 import { itemDef } from '../items/ItemData';
 import { ammoStatus } from './itemLists';
@@ -20,6 +21,12 @@ export function limbShortName(name: string): string {
     .map((w) => PREFIX_LETTERS[w] ?? w.charAt(0).toUpperCase())
     .join('');
   return prefix ? `${prefix}.${cap}` : cap;
+}
+
+/** DT as shown: whole numbers stay whole, worn armor shows a decimal ("2.5"). */
+export function formatDT(dt: number): string {
+  const r = Math.round(dt * 10) / 10;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
 }
 
 /** Renders the bottom status line as plain DOM, plus an optional pending-prompt field. */
@@ -52,7 +59,8 @@ export class StatusBar {
       p.hp < p.maxHp * DANGER_FRACTION ? 'status-danger' : '',
     );
     const held = wieldedItem(p);
-    this.appendField('Wielding', held ? itemDef(held.defId).name : 'Hands');
+    const heldCondition = held ? conditionPercent(held) : null;
+    this.appendField('Wielding', held ? `${itemDef(held.defId).name}${heldCondition ? ` ${heldCondition}` : ''}` : 'Hands');
     if (wieldedGun(p)) {
       const stack = readiedStack(p);
       const status = ammoStatus(stack ? itemCount(stack) : null);
@@ -62,6 +70,8 @@ export class StatusBar {
         status === 'empty' ? 'status-danger' : status === 'low' ? 'status-warn' : '',
       );
     }
+    const dt = damageThreshold(p);
+    if (dt > 0) this.appendField('DT', formatDT(dt));
     this.appendField('Location', locationName(state));
     this.appendField('Position', `${p.x},${p.y}`);
     this.appendField('Turn', String(state.turnCount));

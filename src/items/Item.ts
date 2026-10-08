@@ -8,6 +8,11 @@ export interface Item {
   id: string;
   defId: string;
   count?: number;
+  /**
+   * Condition points left, for things that wear out (see items/Condition); absent means as new.
+   * 0 is broken: it can't be wielded or worn until repaired.
+   */
+  condition?: number;
   /** Overrides the definition's flags for this one item (a quest copy that can't be dropped). */
   flags?: ItemFlags;
 }

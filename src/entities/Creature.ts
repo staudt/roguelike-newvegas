@@ -49,6 +49,8 @@ export interface CreatureStats extends Combatant, Carrier, CreatureTraits {
   stance: 'flee' | 'fight' | null;
   /** Natural weapon (teeth, fists): used when nothing is wielded. */
   attack: AttackProfile;
+  /** Damage Threshold of its hide or shell, on top of any armor worn. */
+  naturalDT: number;
 }
 
 export type Creature = Monster | Npc;
@@ -92,9 +94,11 @@ export function creatureStatsFrom(def: CreatureDef, x: number, y: number) {
     // creature gets exactly one action per turn (a full bank gave it a free extra swing).
     energy: 0,
     limbs: createLimbs(def.bodyPlan, def.hp),
+    naturalDT: def.dt ?? 0,
     inventory: [],
     wielded: null,
     readied: null,
+    worn: [],
   } satisfies Omit<CreatureStats, 'id' | 'kind'> & { glyph: string; fg: string; x: number; y: number };
 }
 

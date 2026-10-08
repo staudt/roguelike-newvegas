@@ -93,7 +93,15 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
 - **Wielded/alternate/readied**: `wieldItem`, `swapWeapons`, drop (`clearSlotsFor`), loadouts, inventory
   tags, command menu context, status bar. Wielding a gun auto-readies ammunition (`readyAmmoForWielded` in
   `engine/Ammo.ts`: the kind last readied with that gun, `player.lastAmmo`, else the first that fits; a melee
-  weapon leaves `readied` alone), so any new way to take up a weapon should call it.
+  weapon leaves `readied` alone), so any new way to take up a weapon should call it. `fireGun` and pick-up call it
+  too, so a fitting stack replaces a wrong or empty readied one. Worn armor (`worn`, `W`/`T` in `engine/Apparel.ts`)
+  is a slot like the others: `clearSlotsFor` clears it, loadouts take `wear`.
+- **Item condition and armor** (`items/Condition.ts` rules, `engine/Wear.ts` when it happens, constants under
+  "Item condition"): weapons wear per shot or landed blow, armor when the piece over the struck spot stops damage;
+  broken things come off (`clearSlotsFor`) and are refused by wield/wear/swap and skipped by the AI. Damage Threshold
+  (`damageThreshold`: worn armor + `naturalDT`) goes into every `resolveMelee`/`resolveShot` call, and a new attack
+  path must pass it and call `wearWielded`/`wearArmorHit`. Jams only roll below `JAM_BELOW`, so fresh gear never
+  touches the RNG; map gear gets its condition rolled by the loader's RNG (`CARRIED_CONDITION`/`GROUND_CONDITION`).
 - **Travel / mouse / run** (`engine/Travel.ts` plans and judges; `Game.stepTravel` takes the steps on a timer; `g` and
   clicks both feed it): anything new that should stop a walk (a new kind of alarm, hazard, event) belongs in
   `travelInterruption`. Clicks route over explored cells only, closed doors are routable, and unexplored targets
@@ -108,6 +116,7 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
 ## Current state (update this section as work lands)
 - Done: M1–M3 plus M3.5 (see `ROADMAP.md`), kick (`k`), alternate weapon (`x`), ghoul, road tile,
   height-aware line of sight with eye/target heights, two-line status bar under the log.
+- Item condition, armor (body/head, DT) and their wear, New Vegas style; repair is not built yet.
 - Known gaps: creatures knocked into each other do not fight each other (AI only targets the player);
   "attacks affect aim" is not modelled; SPECIAL is fixed.
 - M4 steps 1–2 done: sound (`emitSound`), `provoke`, investigate/witness/flee AI, factions, temperament, nerve

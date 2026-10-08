@@ -28,6 +28,8 @@ export interface CreatureDef {
   bodyPlan: BodyPlanId;
   attack: AttackProfile;
   awareness: number;
+  /** Natural Damage Threshold (a tough hide or shell), added to any armor worn; default 0. */
+  dt?: number;
   /** Null for an ordinary civilian (see Factions). */
   faction: FactionId | null;
   temperament: Temperament;

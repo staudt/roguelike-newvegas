@@ -8,7 +8,7 @@ function carrier() {
   const gun = createItem('9mm-pistol');
   const ammo = createItem('9mm-round', 24);
   const knife = createItem('combat-knife');
-  return { pip, stim, gun, ammo, knife, c: { inventory: [pip, stim, ammo, gun, knife], wielded: gun.id as string | null, readied: ammo.id as string | null } };
+  return { pip, stim, gun, ammo, knife, c: { inventory: [pip, stim, ammo, gun, knife], wielded: gun.id as string | null, readied: ammo.id as string | null, worn: [] as string[] } };
 }
 
 describe('item lists', () => {
@@ -27,13 +27,13 @@ describe('item lists', () => {
     const { c } = carrier();
     const text = inventoryLines(c).map((l) => l.text);
     expect(text).toContain('Weapons');
-    expect(text).toContain('a - 9mm pistol (wielded)');
+    expect(text).toContain('a - 9mm pistol [100%] (wielded)');
     expect(text).toContain('c - 24 9mm rounds (readied)');
     expect(text).toContain("e - Pip-Boy 3000 (can't drop)");
   });
 
   it('empty inventory', () => {
-    expect(inventoryLines({ inventory: [], wielded: null, readied: null })[0]!.text).toMatch(/nothing/);
+    expect(inventoryLines({ inventory: [], wielded: null, readied: null, worn: [] })[0]!.text).toMatch(/nothing/);
   });
 
   it('classifies ammo', () => {
