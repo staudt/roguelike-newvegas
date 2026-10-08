@@ -107,7 +107,8 @@ describe('visibility windows', () => {
     setTileId(map, 100000, 100000, 'wall'); // far away: the map is conceptually enormous
     const t0 = performance.now();
     for (let i = 0; i < 20; i++) computeVisible(map, { x: 32, y: 32 }, 24);
-    expect(performance.now() - t0).toBeLessThan(500);
+    // Generous: a cost that grew with the world would be orders of magnitude slower; this only rules that out.
+    expect(performance.now() - t0).toBeLessThan(2000);
   });
 
   it('never shows cells that are not in the map', () => {

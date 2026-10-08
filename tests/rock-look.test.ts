@@ -1,28 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { GROUND_LEVELS, PALETTE, ROAD_LEVELS } from '../src/config/palette';
-import { BASE_FLOOR, BASE_ROAD, baseCodeOf, baseGroundHeight, perceivedColour, visualFor } from '../src/world/Tile';
+import { GROUND_LEVELS, PALETTE } from '../src/config/palette';
+import { TILES, surfaceUnder, visualFor } from '../src/world/Tile';
 
 describe('rocks', () => {
-  it('are drawn as * in the brown of the high ground, dark where the ground is too close to that brown', () => {
+  it('are drawn as * in the brown of the high ground', () => {
     for (let h = 0; h < GROUND_LEVELS.length; h++) {
       const rock = visualFor('rock', h);
       expect(rock.glyph).toBe('*');
-      expect(rock.fg).not.toBe(rock.bg);
+      expect(rock.fg).toBe(PALETTE.rockFg);
     }
-    expect(visualFor('rock', 0).fg).toBe(PALETTE.rockFg);
-    expect(visualFor('rock', GROUND_LEVELS.length - 1).fg).not.toBe(PALETTE.rockFg); // the ridge is the same brown
     expect(PALETTE.rockFg).toBe(GROUND_LEVELS[GROUND_LEVELS.length - 1]!.fg);
   });
 
-  it('sit on the colour the ground of their stored height looks like, glyph texture included', () => {
+  it('with no base, sit on the ground colour of their height, the way a road follows its height', () => {
     for (let h = 0; h < GROUND_LEVELS.length; h++) {
-      expect(visualFor('rock', h).bg).toBe(perceivedColour(GROUND_LEVELS[h]!));
+      expect(visualFor('rock', h).bg).toBe(GROUND_LEVELS[h]!.bg);
+      expect(visualFor('rock', h).bg).toBe(visualFor('ground', h).bg);
     }
-  });
-
-  it('are never darker than the near-solid ground they stand on (the ▓ and █ rungs read light)', () => {
-    const lum = (hex: string) => parseInt(hex.slice(1, 3), 16) + parseInt(hex.slice(3, 5), 16) + parseInt(hex.slice(5, 7), 16);
-    for (const h of [2, 3]) expect(lum(visualFor('rock', h).bg)).toBeGreaterThan(lum(GROUND_LEVELS[h]!.bg) + 100);
   });
 
   it('other tiles keep their own look', () => {
@@ -32,27 +26,28 @@ describe('rocks', () => {
 });
 
 describe('objects take the base under them', () => {
-  it('a wall or rock over floor, road or ground wears that background', () => {
+  it('a wall or rock over floor, road or ground wears that background at its height', () => {
     for (const id of ['wall', 'rock']) {
-      expect(visualFor(id, BASE_FLOOR).bg).toBe(visualFor('floor', 0).bg);
+      expect(visualFor(id, 0, 'floor').bg).toBe(visualFor('floor', 0).bg);
       for (let h = 0; h < GROUND_LEVELS.length; h++) {
-        expect(visualFor(id, BASE_ROAD + h).bg).toBe(perceivedColour(ROAD_LEVELS[h]!));
-        expect(visualFor(id, h).bg).toBe(perceivedColour(GROUND_LEVELS[h]!));
+        expect(visualFor(id, h, 'road').bg).toBe(visualFor('road', h).bg);
+        expect(visualFor(id, h, 'ground').bg).toBe(visualFor('ground', h).bg);
       }
     }
   });
 
-  it('the base code of a cell is what an object painted over it keeps', () => {
-    expect(baseCodeOf('ground', 2)).toBe(2);
-    expect(baseCodeOf('road', 1)).toBe(BASE_ROAD + 1);
-    expect(baseCodeOf('floor', 0)).toBe(BASE_FLOOR);
-    expect(baseCodeOf('openDoor', 0)).toBe(BASE_FLOOR);
-    expect(baseCodeOf('wall', BASE_ROAD + 2)).toBe(BASE_ROAD + 2);
+  it('any plain tile can be a base, with no code to add for it', () => {
+    for (const def of Object.values(TILES)) {
+      if (def.overlay || def.id === 'void') continue;
+      expect(visualFor('rock', 0, def.id).bg).toBe(visualFor(def.id, 0).bg);
+    }
   });
 
-  it('the terrain height under a base is its ground or road height, and 0 for floor', () => {
-    expect(baseGroundHeight(3)).toBe(3);
-    expect(baseGroundHeight(BASE_ROAD + 2)).toBe(2);
-    expect(baseGroundHeight(BASE_FLOOR)).toBe(0);
+  it('an object over a doorway stands on floor, over the void on ground, otherwise on the tile itself', () => {
+    expect(surfaceUnder('door')).toBe('floor');
+    expect(surfaceUnder('openDoor')).toBe('floor');
+    expect(surfaceUnder('void')).toBe('ground');
+    expect(surfaceUnder('road')).toBe('road');
+    expect(surfaceUnder('floor')).toBe('floor');
   });
 });

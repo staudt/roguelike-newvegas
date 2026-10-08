@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nextStepToward } from '../src/ai/Pathfinding';
+import { nextStepToward, searchPath } from '../src/ai/Pathfinding';
 import { runCreatureTurns } from '../src/ai/AIScheduler';
 import { LOSE_TRACK_FACTOR, PEACEFUL_WANDER_CHANCE } from '../src/config/constants';
 import { createMonster, type Monster } from '../src/entities/Monster';
@@ -177,6 +177,28 @@ describe('hostile pathing', () => {
     const grid = createEmptyGrid(60, 1, 'ground');
     expect(nextStepToward(grid, { x: 0, y: 0 }, { x: 59, y: 0 }, () => false, 5)).toBeNull();
     expect(nextStepToward(grid, { x: 0, y: 0 }, { x: 59, y: 0 }, () => false, 600)).toEqual({ x: 1, y: 0 });
+  });
+
+  it('nextStepToward reaches far across open ground on the default budget (searches toward the goal)', () => {
+    const grid = createEmptyGrid(120, 120, 'ground');
+    // 100 steps away: a search spreading evenly in all directions would need ~40,000 cells.
+    expect(nextStepToward(grid, { x: 5, y: 5 }, { x: 105, y: 105 }, () => false)).toEqual({ x: 6, y: 6 });
+  });
+
+  it('nextStepToward takes a shortest way round a wall, not merely some way', () => {
+    // A wall at x=5 from y=0..8 with the gap at the bottom; from (2,2) to (8,2).
+    const grid = createEmptyGrid(11, 11, 'ground');
+    for (let y = 0; y <= 8; y++) setTileId(grid, 5, y, 'wall');
+    let at = { x: 2, y: 2 };
+    let steps = 0;
+    while (!(at.x === 8 && at.y === 2) && steps < 50) {
+      at = nextStepToward(grid, at, { x: 8, y: 2 }, () => false)!;
+      steps++;
+    }
+    // As long as the exhaustive breadth-first walk (7 down to the gap at (5,9), 7 back up).
+    const shortest = searchPath({ x: 2, y: 2 }, (p) => p.x === 8 && p.y === 2, (f, t) => canStep(grid, f, t), { x: 8, y: 2 }, 1e6);
+    expect(shortest.path!.length).toBe(14);
+    expect(steps).toBe(14);
   });
 
   it('treats other creatures as blocked: a hunter cannot pass a blocker in a corridor', () => {

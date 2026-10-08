@@ -142,9 +142,7 @@ export class Renderer {
       }
     }
 
-    for (const g of space.items) {
-      if (!space.visible.has(g.x, g.y)) continue;
-      if (topItemAt(space, g.x, g.y) !== g) continue;
+    for (const g of topVisibleItems(space)) {
       const def = itemDef(g.item.defId);
       const screen = this.camera.worldToScreen(g.x, g.y);
       this.drawGlyph(screen.x, screen.y, def.glyph, def.fg);
@@ -184,7 +182,7 @@ export class Renderer {
     const grid = space.grid;
     const tileId = tileIdOf(grid.getTile(worldX, worldY));
     const height = grid.getHeight(worldX, worldY);
-    const visual = visualFor(tileId, height);
+    const visual = visualFor(tileId, height, tileIdOf(grid.getBase(worldX, worldY)));
     const glyph = isConnectedWall(tileId) ? wallGlyph(grid, worldX, worldY) : visual.glyph;
 
     const screenX = sx * this.camera.cellW;
@@ -217,11 +215,11 @@ export class Renderer {
   }
 }
 
-/** The item drawn for a cell: the last one dropped there. */
-function topItemAt(space: Space, x: number, y: number): GroundItem | undefined {
-  for (let i = space.items.length - 1; i >= 0; i--) {
-    const g = space.items[i]!;
-    if (g.x === x && g.y === y) return g;
+/** The item drawn for each visible cell: the last one dropped there. One pass, however many items lie about. */
+function topVisibleItems(space: Space): Iterable<GroundItem> {
+  const top = new Map<string, GroundItem>();
+  for (const g of space.items) {
+    if (space.visible.has(g.x, g.y)) top.set(`${g.x},${g.y}`, g);
   }
-  return undefined;
+  return top.values();
 }

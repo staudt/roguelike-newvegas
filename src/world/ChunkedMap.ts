@@ -13,6 +13,8 @@ export interface Chunk {
   cy: number;
   tiles: Uint8Array;
   heights: Uint8Array;
+  /** The tile under an object (see TileMap.getBase); 0 where there is none. */
+  bases: Uint8Array;
   explored: Uint8Array;
   /**
    * Changed since it was loaded or saved (editor edits, a door opened in play). A dirty chunk must
@@ -31,7 +33,15 @@ export function createChunk(cx: number, cy: number, fillTile = VOID_TILE, fillHe
   const heights = new Uint8Array(CHUNK_CELLS);
   if (fillTile !== 0) tiles.fill(fillTile);
   if (fillHeight !== 0) heights.fill(fillHeight);
-  return { cx, cy, tiles, heights, explored: new Uint8Array(CHUNK_CELLS), dirty: false };
+  return {
+    cx,
+    cy,
+    tiles,
+    heights,
+    bases: new Uint8Array(CHUNK_CELLS),
+    explored: new Uint8Array(CHUNK_CELLS),
+    dirty: false,
+  };
 }
 
 /**
@@ -126,6 +136,20 @@ export class ChunkedMap implements TileMap {
     const i = ChunkedMap.localIndex(x, y);
     if (chunk.heights[i] !== height) {
       chunk.heights[i] = height;
+      chunk.dirty = true;
+    }
+  }
+
+  getBase(x: number, y: number): number {
+    const chunk = this.chunkAt(x, y);
+    return chunk ? chunk.bases[ChunkedMap.localIndex(x, y)]! : 0;
+  }
+
+  setBase(x: number, y: number, base: number): void {
+    const chunk = this.ensureChunk(x >> CHUNK_SHIFT, y >> CHUNK_SHIFT);
+    const i = ChunkedMap.localIndex(x, y);
+    if (chunk.bases[i] !== base) {
+      chunk.bases[i] = base;
       chunk.dirty = true;
     }
   }

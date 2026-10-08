@@ -6,10 +6,12 @@ import { creatureAt, theName, type Creature } from '../entities/Creature';
 import type { InteractionId, Npc } from '../entities/Npc';
 import { computeVisible, markExplored } from '../fov/Visibility';
 import { itemWithArticle } from '../items/Item';
+import { isBroken } from '../items/Condition';
 import { isWieldable, itemDef } from '../items/ItemData';
 import { addPoints, type Direction, DIRECTION_VECTORS } from '../utils/geometry';
 import { defaultRNG, type RNG } from '../utils/RNG';
-import { canStep, getTileId, setTileId } from '../world/GameMap';
+import { canStep, setTileId } from '../world/GameMap';
+import { tileIdOf, tileOpenable, tileOpensTo } from '../world/Tile';
 import { readyAmmoForWielded } from './Ammo';
 import { playerAttacks } from './Combat';
 import { describeGroundHere } from './GroundItems';
@@ -98,8 +100,9 @@ export function tryMovePlayer(
   if (creature) return bumpCreature(state, creature, events, rng);
 
   // Walking into a closed door opens it (takes the turn, and you stay put) — NetHack's rule.
-  if (getTileId(space.grid, target.x, target.y) === 'door') {
-    setTileId(space.grid, target.x, target.y, 'openDoor');
+  const targetTile = space.grid.getTile(target.x, target.y);
+  if (tileOpenable(targetTile)) {
+    setTileId(space.grid, target.x, target.y, tileIdOf(tileOpensTo(targetTile)!));
     addMessage(state, 'You open the door.');
     advanceTurn(state, events, rng);
     return true;
@@ -233,6 +236,10 @@ export function wieldItem(
       addMessage(state, `You are already wielding the ${itemDef(item.defId).name}.`);
       return false;
     }
+    if (isBroken(item)) {
+      addMessage(state, `The ${itemDef(item.defId).name} is broken.`);
+      return false;
+    }
     rememberAlternate(state, item.id);
     state.player.wielded = item.id;
     addMessage(state, `You are now wielding the ${itemDef(item.defId).name}.`);
@@ -263,6 +270,11 @@ export function swapWeapons(
     return item ? itemDef(item.defId).name : 'bare hands';
   };
   if (p.alternate !== null && !p.inventory.some((i) => i.id === p.alternate)) p.alternate = null;
+  const alternate = p.inventory.find((i) => i.id === p.alternate);
+  if (alternate && isBroken(alternate)) {
+    addMessage(state, `Your ${nameOf(p.alternate)} is broken.`);
+    return false;
+  }
   // No alternate means bare hands, so `x` just puts the wielded weapon away.
   if (p.alternate === null && p.wielded === null) {
     addMessage(state, 'You have no alternate weapon.');

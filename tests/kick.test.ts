@@ -81,9 +81,17 @@ describe('kick balance and terrain', () => {
     return m.x - 2;
   };
 
-  it('a gecko is usually sent two or more squares', () => {
+  it('a young gecko is usually sent two or more squares', () => {
     for (const roll of [0.01, 0.3, 0.6]) {
-      expect(flown(createMonster('g', 'gecko', 2, 1), [], roll)).toBeGreaterThanOrEqual(2);
+      expect(flown(createMonster('g', 'young-gecko', 2, 1), [], roll)).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('a grown gecko is heavy: one or two squares', () => {
+    for (const roll of [0.01, 0.3, 0.6]) {
+      const d = flown(createMonster('g', 'gecko', 2, 1), [], roll);
+      expect(d).toBeGreaterThanOrEqual(1);
+      expect(d).toBeLessThanOrEqual(2);
     }
   });
 
@@ -94,14 +102,14 @@ describe('kick balance and terrain', () => {
   });
 
   it('kicking up a rise sends the target a lot less far', () => {
-    const level = flown(createMonster('g', 'gecko', 2, 1));
-    const uphill = flown(createMonster('g', 'gecko', 2, 1), [[3, 1], [4, 1], [5, 1], [6, 1]]);
+    const level = flown(createMonster('g', 'young-gecko', 2, 1));
+    const uphill = flown(createMonster('g', 'young-gecko', 2, 1), [[3, 1], [4, 1], [5, 1], [6, 1]]);
     expect(uphill).toBeLessThan(level);
   });
 
   it('kicking down a slope sends it tumbling to the bottom', () => {
     const heights: Array<[number, number]> = [[2, 4], [3, 3], [4, 2], [5, 1], [6, 0]];
-    const down = flown(createMonster('g', 'gecko', 2, 1), heights, 0.1);
+    const down = flown(createMonster('g', 'young-gecko', 2, 1), heights, 0.1);
     expect(down).toBeGreaterThanOrEqual(3);
   });
 });

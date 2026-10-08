@@ -1,12 +1,21 @@
 import type { AttackProfile, Combatant } from '../combat/Combatant';
+import { createLimbs } from '../combat/Limbs';
 import type { Carrier } from '../items/Loadout';
 import type { Point } from '../utils/geometry';
+import { startsHostile, traitsOf, type CreatureDef, type CreatureTraits } from './CreatureData';
 import type { FactionId, Nerve, Temperament } from './Factions';
 import type { Monster } from './Monster';
 import type { Npc } from './Npc';
 
-/** What NPCs and monsters have in common: they can fight, notice you, and be hostile or not. */
-export interface CreatureStats extends Combatant, Carrier {
+/**
+ * What NPCs and monsters have in common: they can fight, notice you, and be hostile or not. What
+ * they do beyond that (open doors, raise the alarm, wander far) is in the traits, from their kind.
+ */
+export interface CreatureStats extends Combatant, Carrier, CreatureTraits {
+  /** The creature kind (see CreatureData) its stats, traits and loot come from. */
+  defId: string;
+  /** Where the map put it: idle wandering stays within `wanderRadius` of it. */
+  home: Point;
   name: string;
   /** Proper names ("Sunny Smiles") take no article; "gecko" becomes "the gecko". */
   proper: boolean;
@@ -40,9 +49,58 @@ export interface CreatureStats extends Combatant, Carrier {
   stance: 'flee' | 'fight' | null;
   /** Natural weapon (teeth, fists): used when nothing is wielded. */
   attack: AttackProfile;
+  /** Damage Threshold of its hide or shell, on top of any armor worn. */
+  naturalDT: number;
 }
 
 export type Creature = Monster | Npc;
+
+/** Everything a fresh creature of `def` starts with at (x, y), whether placed as a monster or named as an NPC. */
+export function creatureStatsFrom(def: CreatureDef, x: number, y: number) {
+  return {
+    defId: def.id,
+    home: { x, y },
+    glyph: def.glyph,
+    fg: def.fg,
+    x,
+    y,
+    name: def.name,
+    proper: false,
+    hostile: startsHostile(def),
+    faction: def.faction,
+    temperament: def.temperament,
+    nerve: def.nerve ?? 'steady',
+    ...traitsOf(def),
+    awareness: def.awareness,
+    alerted: false,
+    provoked: false,
+    investigate: null,
+    alarm: null,
+    stance: null,
+    attack: {
+      ...def.attack,
+      damage: { ...def.attack.damage },
+      hitProfile: { ...def.attack.hitProfile },
+    },
+    hp: def.hp,
+    maxHp: def.hp,
+    ac: def.ac,
+    agility: def.agility,
+    strength: def.strength,
+    speed: def.speed,
+    size: def.size ?? 'medium',
+    ...(def.mass !== undefined ? { mass: def.mass } : {}),
+    // Empty bank: a fresh creature waits for its first tick like everyone else, so a normal-speed
+    // creature gets exactly one action per turn (a full bank gave it a free extra swing).
+    energy: 0,
+    limbs: createLimbs(def.bodyPlan, def.hp),
+    naturalDT: def.dt ?? 0,
+    inventory: [],
+    wielded: null,
+    readied: null,
+    worn: [],
+  } satisfies Omit<CreatureStats, 'id' | 'kind'> & { glyph: string; fg: string; x: number; y: number };
+}
 
 export function theName(creature: Pick<CreatureStats, 'name' | 'proper'>): string {
   return creature.proper ? creature.name : `the ${creature.name}`;

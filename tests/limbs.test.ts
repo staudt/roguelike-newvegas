@@ -61,6 +61,19 @@ describe('createLimbs', () => {
     }
   });
 
+  it('the torso (or body) takes damage but is never hurt or crippled', () => {
+    for (const plan of ['humanoid', 'quadruped', 'insect'] as const) {
+      const torso = find(createLimbs(plan, 20), 'torso');
+      torso.hp = torso.maxHp / 2;
+      expect(limbCondition(torso)).toBe('ok');
+      torso.hp = 0;
+      expect(limbCondition(torso)).toBe('ok');
+    }
+    const arm = find(createLimbs('humanoid', 20), 'left-arm');
+    arm.hp = 0;
+    expect(limbCondition(arm)).toBe('crippled');
+  });
+
   it('names the torso "body" for animals and "torso" for people', () => {
     expect(find(createLimbs('quadruped', 12), 'torso').name).toBe('body');
     expect(find(createLimbs('humanoid', 12), 'torso').name).toBe('torso');

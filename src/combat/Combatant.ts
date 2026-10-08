@@ -21,6 +21,8 @@ export interface AttackProfile {
   hitProfile: HitProfile;
   /** Whether the wielder's Strength adds to damage (true for muscle, false for a gun butt). */
   strengthBonus: boolean;
+  /** Multiplies the rolled damage (before Strength): a worn weapon hits softer. Absent means 1. */
+  damageFactor?: number;
 }
 
 /** How hard a body is to hit with a gun. Absent means medium. */

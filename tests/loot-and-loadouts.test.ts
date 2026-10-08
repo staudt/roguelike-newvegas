@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { playerAttacks } from '../src/engine/Combat';
 import { groundItemsAt } from '../src/engine/GroundItems';
 import { createMonster } from '../src/entities/Monster';
-import { MONSTERS } from '../src/entities/MonsterData';
+import { CREATURES } from '../src/entities/CreatureData';
 import { createNpc } from '../src/entities/Npc';
 import { applyLoadout } from '../src/items/Loadout';
 import { isWalkable } from '../src/world/GameMap';
@@ -46,8 +46,8 @@ describe('loot on death', () => {
   });
 
   it('ammunition loot rolls a count in its range, only when it drops', () => {
-    MONSTERS['test-bandit'] = {
-      ...MONSTERS.gecko!,
+    CREATURES['test-bandit'] = {
+      ...CREATURES.gecko!,
       id: 'test-bandit',
       loot: [{ defId: '9mm-round', chance: 50, count: { min: 3, max: 7 } }],
     };
@@ -70,7 +70,7 @@ describe('loot on death', () => {
       playerAttacks(c.state, none, scriptedRNG([...KILL, 0.9])); // no count roll consumed
       expect(groundItemsAt(c.state, 1, 0)).toEqual([]);
     } finally {
-      delete MONSTERS['test-bandit'];
+      delete CREATURES['test-bandit'];
     }
   });
 
@@ -93,7 +93,7 @@ describe('loot on death', () => {
   });
 
   it('carried ammunition and rolled ammunition merge on the floor', () => {
-    MONSTERS['test-bandit'] = { ...MONSTERS.gecko!, id: 'test-bandit', loot: [{ defId: '9mm-round', chance: 100, count: { min: 2, max: 2 } }] };
+    CREATURES['test-bandit'] = { ...CREATURES.gecko!, id: 'test-bandit', loot: [{ defId: '9mm-round', chance: 100, count: { min: 2, max: 2 } }] };
     try {
       const m = createMonster('b', 'test-bandit', 1, 0);
       applyLoadout(m, { inventory: [{ defId: '9mm-round', count: 5 }] });
@@ -104,7 +104,7 @@ describe('loot on death', () => {
       expect(here).toHaveLength(1);
       expect(here[0]!.item.count).toBe(7);
     } finally {
-      delete MONSTERS['test-bandit'];
+      delete CREATURES['test-bandit'];
     }
   });
 });

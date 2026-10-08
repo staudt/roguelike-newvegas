@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FILL_CAP, MapDocument, type FlatSpaceJSON, type WorldMetaJSON } from '../src/editor/MapDocument';
 import { encodeChunk } from '../src/world/ChunkCodec';
 import { createChunk } from '../src/world/ChunkedMap';
-import { BASE_FLOOR, BASE_ROAD, GROUND_TILE } from '../src/world/Tile';
+import { GROUND_TILE } from '../src/world/Tile';
 import { readWorldChunks } from './helpers/world';
 
 const RAW_META = import.meta.glob<string>('../src/world/goodsprings/world.json', {
@@ -255,20 +255,41 @@ describe('MapDocument objects keep their base', () => {
     doc.beginStroke();
     doc.paintTile(2, 2, 'floor');
     doc.paintTile(2, 2, 'wall');
-    expect(doc.heightAt(2, 2)).toBe(BASE_FLOOR);
+    expect(doc.baseAt(2, 2)).toBe('floor');
+    expect(doc.heightAt(2, 2)).toBe(0);
 
     doc.setHeight(3, 3, 2);
     doc.paintTile(3, 3, 'rock');
+    expect(doc.baseAt(3, 3)).toBe('ground');
     expect(doc.heightAt(3, 3)).toBe(2);
     doc.paintTile(3, 3, 'wall'); // object over object keeps the base
+    expect(doc.baseAt(3, 3)).toBe('ground');
     expect(doc.heightAt(3, 3)).toBe(2);
     doc.paintTile(3, 3, 'ground');
+    expect(doc.baseAt(3, 3)).toBe('');
     expect(doc.heightAt(3, 3)).toBe(2);
 
     doc.paintTile(4, 4, 'road');
+    doc.setHeight(4, 4, 1);
     doc.paintTile(4, 4, 'rock');
-    expect(doc.heightAt(4, 4)).toBe(BASE_ROAD);
-    doc.paintTile(4, 4, 'ground');
-    expect(doc.heightAt(4, 4)).toBe(0);
+    expect(doc.baseAt(4, 4)).toBe('road');
+    expect(doc.heightAt(4, 4)).toBe(1);
+
+    doc.paintTile(5, 5, 'door');
+    doc.paintTile(5, 5, 'wall');
+    expect(doc.baseAt(5, 5)).toBe('floor');
+  });
+
+  it('undo gives an object back its base', () => {
+    const doc = groundWorld();
+    doc.beginStroke();
+    doc.paintTile(2, 2, 'road');
+    doc.paintTile(2, 2, 'rock');
+    doc.beginStroke();
+    doc.paintTile(2, 2, 'ground');
+    expect(doc.baseAt(2, 2)).toBe('');
+    doc.undo();
+    expect(doc.tileAt(2, 2)).toBe('rock');
+    expect(doc.baseAt(2, 2)).toBe('road');
   });
 });

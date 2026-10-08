@@ -142,3 +142,37 @@ export const RUN_MAX_STEPS = 60;
 
 /** A hostile that comes this close (Chebyshev) while walking interrupts the walk. */
 export const TRAVEL_DANGER_RADIUS = 5;
+
+// --- Item condition (New Vegas style) ---------------------------------------------------------
+
+/** Condition points a weapon loses per shot fired or melee blow landed. Durability is in the item data. */
+export const WEAR_PER_ATTACK = 1;
+
+/** A gun's damage at 0% condition, as a fraction of full; it falls linearly from 100% (New Vegas: 66%). */
+export const GUN_DAMAGE_AT_ZERO = 0.66;
+
+/** A melee weapon's damage at 0% condition (New Vegas: 50%). */
+export const MELEE_DAMAGE_AT_ZERO = 0.5;
+
+/** To-hit points a gun loses at 0% condition, linearly from none at 100%: a worn barrel sprays. */
+export const WORN_GUN_ACCURACY_PENALTY = 20;
+
+/** Below this condition fraction a gun can jam... */
+export const JAM_BELOW = 0.5;
+/** ...with this percent chance per shot at 0%, scaling linearly to none at `JAM_BELOW`. A jam costs the turn, not the round. */
+export const JAM_CHANCE_AT_ZERO = 20;
+
+/** Armor's Damage Threshold at 0% condition, as a fraction of its full DT. */
+export const ARMOR_DT_AT_ZERO = 0.5;
+
+/** However strong the armor, at least this fraction of a hit's damage gets through (New Vegas: 20%). */
+export const MIN_DAMAGE_FRACTION = 0.2;
+
+/** Condition an armor piece loses when hit: this fraction of the damage it stopped (New Vegas: 0.35), at least 1. */
+export const ARMOR_WEAR_FRACTION = 0.35;
+
+/** Condition range (percent) of weapons and armor a creature carries when the map places it: used, often badly. */
+export const CARRIED_CONDITION = { min: 20, max: 70 };
+
+/** Condition range (percent) of weapons and armor lying on the ground in the map. */
+export const GROUND_CONDITION = { min: 30, max: 90 };

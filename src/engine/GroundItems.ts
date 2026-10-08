@@ -1,5 +1,5 @@
 import type { Creature } from '../entities/Creature';
-import { monsterDef, type LootEntry } from '../entities/MonsterData';
+import { creatureDef, type LootEntry } from '../entities/CreatureData';
 import { addToStack, createItem, isStackable, itemWithArticle, type Item } from '../items/Item';
 import { itemDef } from '../items/ItemData';
 import { randomInt, type RNG } from '../utils/RNG';
@@ -34,7 +34,7 @@ export function dropCreatureItems(state: GameState, creature: Creature, rng: RNG
   creature.wielded = null;
   creature.readied = null;
 
-  const loot = monsterLoot(creature);
+  const loot = lootOf(creature);
   for (const entry of loot) {
     if (randomInt(rng, 1, 100) > entry.chance) continue;
     const count =
@@ -46,8 +46,8 @@ export function dropCreatureItems(state: GameState, creature: Creature, rng: RNG
 }
 
 
-function monsterLoot(creature: Creature): LootEntry[] {
-  return creature.kind === 'monster' ? (monsterDef(creature.defId).loot ?? []) : [];
+function lootOf(creature: Creature): LootEntry[] {
+  return creatureDef(creature.defId).loot ?? [];
 }
 
 /** "You see here a baseball bat." / "There are several objects here." / null for an empty cell. */

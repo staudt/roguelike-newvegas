@@ -5,26 +5,24 @@ import {
   LOSE_TRACK_FACTOR,
   MAX_ACTIONS_PER_TURN,
   NORMAL_SPEED,
-  NPC_WANDER_CHANCE,
-  NPC_WANDER_RADIUS,
-  PEACEFUL_WANDER_CHANCE,
   SIM_RADIUS,
 } from '../config/constants';
 import { GUN_KITE_CHANCE, UNARMED_FLEE_CHANCE, hostileToPlayer } from '../entities/Factions';
 import { theName, type Creature } from '../entities/Creature';
 import { capitalize } from '../combat/Narration';
-import { creatureAttacks, fireProjectile, shotPath } from '../engine/Combat';
+import { creatureAttacks, pullTrigger, shotPath } from '../engine/Combat';
 import { emitSound, relayAlarm } from '../engine/Sound';
 import type { EventBus, GameEvents } from '../engine/EventBus';
 import { addMessage, getActiveSpace, type GameState } from '../engine/GameState';
-import { canFire, consumeRound, findItem, readiedStack, wieldedGun, wieldedItem } from '../items/Carrying';
+import { canFire, findItem, isUsable, readiedStack, wieldedGun, wieldedItem } from '../items/Carrying';
 import { itemCount, type Item } from '../items/Item';
 import { itemDef, type GunDef } from '../items/ItemData';
 import { creatureAt } from '../entities/Creature';
 import { hasLineOfSight } from '../fov/LineOfSight';
 import { chebyshevDistance, DIRECTION_VECTORS, type Point } from '../utils/geometry';
 import { randomInt, type RNG } from '../utils/RNG';
-import { canStep, getTileId, setTileId } from '../world/GameMap';
+import { canStep, setTileId } from '../world/GameMap';
+import { tileIdOf, tileOpenable, tileOpensTo } from '../world/Tile';
 import { cellKey, fleeStep, nextStepToward } from './Pathfinding';
 
 const STEP_VECTORS = Object.values(DIRECTION_VECTORS);
@@ -68,7 +66,7 @@ export function runCreatureTurns(state: GameState, rng: RNG, events: EventBus<Ga
 
       if (creature.hostile) {
         actAsHostile(state, creature, rng, events, occupancy);
-      } else if (creature.kind === 'monster') {
+      } else if (!creature.social) {
         wander(state, creature, rng, occupancy);
       } else if (!joinsTrouble(state, creature)) {
         if (creature.alarm === 'pending') relayAlarm(state, creature);
@@ -96,13 +94,14 @@ function moveTo(occupancy: Occupancy, creature: Creature, x: number, y: number):
 }
 
 /**
- * Takes the step a path search chose. People open a closed door in their way, which costs the action
- * and leaves them where they were; animals never get that far (their paths don't go through doors).
+ * Takes the step a path search chose. A door-opener opens a closed door in its way, which costs the
+ * action and leaves it where it was; animals never get that far (their paths don't go through doors).
  */
 function takeStep(state: GameState, creature: Creature, step: Point, occupancy: Occupancy): void {
   const grid = getActiveSpace(state).grid;
-  if (creature.kind === 'npc' && getTileId(grid, step.x, step.y) === 'door') {
-    setTileId(grid, step.x, step.y, 'openDoor');
+  const stepTile = grid.getTile(step.x, step.y);
+  if (creature.opensDoors && tileOpenable(stepTile)) {
+    setTileId(grid, step.x, step.y, tileIdOf(tileOpensTo(stepTile)!));
     if (canSee(state, creature)) addMessage(state, `${capitalize(theName(creature))} opens the door.`);
     return;
   }
@@ -121,14 +120,14 @@ function isOccupied(state: GameState, occupancy: Occupancy, x: number, y: number
  */
 function joinsTrouble(state: GameState, npc: Creature): boolean {
   const space = getActiveSpace(state);
-  const sees = space.npcs.some(
-    (other) =>
-      other !== npc &&
-      other.hostile &&
-      other.provoked &&
-      chebyshevDistance(npc, other) <= npc.awareness &&
-      hasLineOfSight(space.grid, npc, other),
-  );
+  const witnessed = (other: Creature): boolean =>
+    other !== npc &&
+    other.social &&
+    other.hostile &&
+    other.provoked &&
+    chebyshevDistance(npc, other) <= npc.awareness &&
+    hasLineOfSight(space.grid, npc, other);
+  const sees = space.npcs.some(witnessed) || space.monsters.some(witnessed);
   if (!sees) return false;
 
   npc.hostile = true;
@@ -179,7 +178,7 @@ function actAsHostile(
     return;
   }
 
-  if (creature.kind === 'npc' && creature.provoked) {
+  if (creature.social && creature.provoked) {
     creature.stance ??= chooseStance(creature, rng);
     if (creature.stance === 'flee') {
       flee(state, creature, rng, events, occupancy, distance);
@@ -200,7 +199,7 @@ function actAsHostile(
     state.player,
     (x, y) => isOccupied(state, occupancy, x, y),
     undefined,
-    creature.kind === 'npc',
+    creature.opensDoors,
   );
   if (!step) return;
 
@@ -267,7 +266,7 @@ interface UsableGun {
 /** A gun in the pack that has matching ammunition in the pack too. Prefers the wielded one. */
 function findUsableGun(creature: Creature): UsableGun | null {
   const candidates = creature.inventory
-    .filter((i) => itemDef(i.defId).kind === 'gun')
+    .filter((i) => itemDef(i.defId).kind === 'gun' && isUsable(i))
     .sort((a, b) => Number(b.id === creature.wielded) - Number(a.id === creature.wielded));
   for (const item of candidates) {
     const def = itemDef(item.defId) as GunDef;
@@ -358,7 +357,7 @@ function actWithGun(
   // 2. Out of ammunition: put the gun away and fall back on the next best thing.
   if (!check.ok) {
     const gun = findItem(creature, creature.wielded)!;
-    const melee = creature.inventory.find((i) => i !== gun && itemDef(i.defId).kind === 'weapon');
+    const melee = creature.inventory.find((i) => i !== gun && itemDef(i.defId).kind === 'weapon' && isUsable(i));
     creature.wielded = melee ? melee.id : null;
     if (canSee(state, creature)) {
       addMessage(state, `${capitalize(theName(creature))}'s ${wielded.name} is out of ammo.`);
@@ -368,7 +367,7 @@ function actWithGun(
 
   // 3. A person with a gun keeps their distance from someone closing in, but not every turn.
   if (
-    creature.kind === 'npc' &&
+    creature.social &&
     chebyshevDistance(creature, state.player) < GUN_KEEP_DISTANCE &&
     randomInt(rng, 1, 100) <= GUN_KITE_CHANCE[creature.nerve] &&
     stepAway(state, creature, occupancy)
@@ -379,8 +378,7 @@ function actWithGun(
   // 3b. A clear shot: take it.
   const step = clearShot(state, creature, creature, check.gun.range);
   if (step) {
-    consumeRound(creature);
-    fireProjectile(state, creature, check.gun, step, rng, events);
+    pullTrigger(state, creature, check.gun, step, rng, events);
     return true;
   }
 
@@ -403,24 +401,25 @@ function actWithGun(
     state.player,
     (x, y) => isOccupied(state, occupancy, x, y),
     undefined,
-    creature.kind === 'npc',
+    creature.opensDoors,
   );
   if (approach) takeStep(state, creature, approach, occupancy);
   return true;
 }
 
 /**
- * Idle creatures drift about now and then; they never leave their space. Animals roam freely; a
- * person keeps within a few cells of home, so Doc is still by his bed and nobody wanders out of town.
+ * Idle creatures drift about now and then (`wanderChance`); they never leave their space. Animals
+ * roam freely; a person keeps within `wanderRadius` of home, so Doc is still by his bed and nobody
+ * wanders out of town.
  */
 function wander(state: GameState, creature: Creature, rng: RNG, occupancy: Occupancy): void {
-  if (randomInt(rng, 1, 100) > (creature.kind === 'npc' ? NPC_WANDER_CHANCE : PEACEFUL_WANDER_CHANCE)) return;
+  if (randomInt(rng, 1, 100) > creature.wanderChance) return;
 
   const space = getActiveSpace(state);
   const v = STEP_VECTORS[randomInt(rng, 0, STEP_VECTORS.length - 1)]!;
   const to = { x: creature.x + v.x, y: creature.y + v.y };
 
   if (!canStep(space.grid, creature, to) || isOccupied(state, occupancy, to.x, to.y)) return;
-  if (creature.kind === 'npc' && chebyshevDistance(to, creature.home) > NPC_WANDER_RADIUS) return;
+  if (creature.wanderRadius !== null && chebyshevDistance(to, creature.home) > creature.wanderRadius) return;
   moveTo(occupancy, creature, to.x, to.y);
 }

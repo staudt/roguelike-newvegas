@@ -1,3 +1,4 @@
+import { conditionPercent } from '../items/Condition';
 import { isUndroppable, itemLabel, type Item } from '../items/Item';
 import { itemDef, type ItemKind } from '../items/ItemData';
 import type { Carrier } from '../items/Loadout';
@@ -7,6 +8,7 @@ import type { PanelLine } from './Menu';
 
 const GROUPS: Array<{ heading: string; kinds: ItemKind[] }> = [
   { heading: 'Weapons', kinds: ['weapon', 'gun'] },
+  { heading: 'Apparel', kinds: ['armor'] },
   { heading: 'Ammunition', kinds: ['ammo'] },
   { heading: 'Consumables', kinds: ['consumable'] },
   { heading: 'Other', kinds: ['misc'] },
@@ -37,8 +39,15 @@ export function itemTags(c: Carrier, item: Item): string[] {
   if (c.wielded === item.id) tags.push('(wielded)');
   if (c.readied === item.id) tags.push('(readied)');
   if (c.alternate === item.id) tags.push('(alternate)');
+  if (c.worn.includes(item.id)) tags.push('(worn)');
   if (isUndroppable(item)) tags.push("(can't drop)");
   return tags;
+}
+
+/** How an item reads in lists: its label, plus its condition for things that wear ("9mm pistol [62%]"). */
+export function itemListLabel(item: Item): string {
+  const condition = conditionPercent(item);
+  return condition ? `${itemLabel(item)} [${condition}]` : itemLabel(item);
 }
 
 /** Inventory panel contents: kind headings, then "a - 12 9mm rounds (readied)" rows. */
@@ -58,7 +67,7 @@ export function inventoryLines(c: Carrier): PanelLine[] {
     const tags = itemTags(c, item);
     const letter = inventoryLetter(i) ?? ' ';
     lines.push({
-      text: `${letter} - ${itemLabel(item)}${tags.length ? ` ${tags.join(' ')}` : ''}`,
+      text: `${letter} - ${itemListLabel(item)}${tags.length ? ` ${tags.join(' ')}` : ''}`,
       glyph: { ch: def.glyph, color: def.fg },
     });
   });

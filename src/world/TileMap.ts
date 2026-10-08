@@ -24,6 +24,13 @@ export interface TileMap {
   getHeight(x: number, y: number): number;
   setHeight(x: number, y: number, height: number): void;
 
+  /**
+   * What an object (an overlay tile: rock, wall) stands on, as a tile index: ground, road, floor.
+   * 0 (void) means none: plain cells have no base, and an object without one stands on bare ground.
+   */
+  getBase(x: number, y: number): number;
+  setBase(x: number, y: number, base: number): void;
+
   isExplored(x: number, y: number): boolean;
   markExplored(x: number, y: number): void;
 }

@@ -1,10 +1,10 @@
-import { canFire, clearSlotsFor, consumeRound, findItem } from '../items/Carrying';
+import { canFire, clearSlotsFor, findItem } from '../items/Carrying';
 import { addToStack, isUndroppable, itemLabel, itemWithArticle } from '../items/Item';
 import { itemDef } from '../items/ItemData';
 import { DIRECTION_VECTORS, type Direction } from '../utils/geometry';
 import { defaultRNG, type RNG } from '../utils/RNG';
-import { rememberAmmo } from './Ammo';
-import { fireProjectile } from './Combat';
+import { readyAmmoForWielded, rememberAmmo } from './Ammo';
+import { pullTrigger } from './Combat';
 import type { EventBus, GameEvents } from './EventBus';
 import { addMessage, getActiveSpace, type GameState } from './GameState';
 import { addGroundItem, groundItemsAt } from './GroundItems';
@@ -42,6 +42,8 @@ export function pickUp(
     addMessage(state, `You pick up ${itemWithArticle(ground.item)}.`);
     addToStack(state.player.inventory, ground.item);
   }
+  // Rounds for the gun in hand, with nothing usable readied: ready them.
+  readyAmmoForWielded(state);
 
   advanceTurn(state, events, rng);
   return true;
@@ -65,6 +67,7 @@ export function dropItem(
   }
 
   const wasWielded = player.wielded === item.id;
+  if (player.worn.includes(item.id)) addMessage(state, `You take off the ${itemLabel(item)}.`);
   player.inventory.splice(player.inventory.indexOf(item), 1);
   clearSlotsFor(player, item);
   addGroundItem(getActiveSpace(state), player.x, player.y, item);
@@ -146,14 +149,15 @@ export function fireGun(
   rng: RNG = defaultRNG,
 ): boolean {
   if (state.gameOver) return false;
+  // The right ammunition goes in by itself: a stack that fits replaces a wrong or empty one (free).
+  readyAmmoForWielded(state);
   const check = canFire(state.player);
   if (!check.ok) {
     addMessage(state, check.reason);
     return false;
   }
 
-  consumeRound(state.player);
-  fireProjectile(state, state.player, check.gun, DIRECTION_VECTORS[direction], rng, events);
+  pullTrigger(state, state.player, check.gun, DIRECTION_VECTORS[direction], rng, events);
   advanceTurn(state, events, rng);
   return true;
 }

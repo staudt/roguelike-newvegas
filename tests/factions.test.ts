@@ -8,9 +8,12 @@ import {
   factionRelation,
   hostileToPlayer,
   startingStanding,
+  type FactionId,
+  type Party,
+  type Relation,
 } from '../src/entities/Factions';
 import { createMonster } from '../src/entities/Monster';
-import { MONSTERS, monsterStartsHostile } from '../src/entities/MonsterData';
+import { CREATURES, startsHostile } from '../src/entities/CreatureData';
 import { createNpc, type Npc, type NpcProfile } from '../src/entities/Npc';
 import { npcProfile } from '../src/entities/NpcData';
 import type { RNG } from '../src/utils/RNG';
@@ -54,6 +57,55 @@ describe('faction relations', () => {
   });
 });
 
+describe('the relation table', () => {
+  const parties = [...(Object.keys(FACTIONS) as FactionId[]), 'civilian' as const];
+  const asFaction = (p: Party): FactionId | null => (p === 'civilian' ? null : p);
+
+  // The rules as they were when relations lived in code.
+  function oldRelation(a: FactionId | null, b: FactionId | null): Relation {
+    const beasts = new Set<Party>(['wildlife', 'ghouls']);
+    const atWar: Array<[Party, Party]> = [
+      ['ncr', 'legion'],
+      ['ncr', 'powder-gangers'],
+      ['powder-gangers', 'civilian'],
+    ];
+    const x: Party = a ?? 'civilian';
+    const y: Party = b ?? 'civilian';
+    if (x === y) return 'friendly';
+    if (beasts.has(x) || beasts.has(y)) return beasts.has(x) && beasts.has(y) ? 'neutral' : 'hostile';
+    return atWar.some(([p, q]) => (p === x && q === y) || (p === y && q === x)) ? 'hostile' : 'neutral';
+  }
+
+  it('is symmetric for every pair of parties', () => {
+    for (const x of parties) {
+      for (const y of parties) {
+        expect(factionRelation(asFaction(x), asFaction(y)), `${x} / ${y}`).toBe(
+          factionRelation(asFaction(y), asFaction(x)),
+        );
+      }
+    }
+  });
+
+  it('equals the old rules for every pair', () => {
+    for (const x of parties) {
+      for (const y of parties) {
+        expect(factionRelation(asFaction(x), asFaction(y)), `${x} / ${y}`).toBe(
+          oldRelation(asFaction(x), asFaction(y)),
+        );
+      }
+    }
+  });
+
+  it('enemies name existing factions or civilians, and never the faction itself', () => {
+    for (const f of Object.values(FACTIONS)) {
+      for (const e of f.enemies ?? []) {
+        expect(parties, `${f.id} lists ${e}`).toContain(e);
+        expect(e).not.toBe(f.id);
+      }
+    }
+  });
+});
+
 describe('hostile on sight', () => {
   it('peaceful never; others by faction standing; factionless non-peaceful always', () => {
     const standing = startingStanding();
@@ -67,10 +119,11 @@ describe('hostile on sight', () => {
     expect(hostileToPlayer('ncr', 'aggressive', standing)).toBe(false);
   });
 
-  it('every monster kind keeps the hostility it had before factions', () => {
-    for (const def of Object.values(MONSTERS)) {
-      expect(monsterStartsHostile(def)).toBe(def.id !== 'brahmin');
-      expect(FACTIONS[def.faction]).toBeDefined();
+  it('every creature kind keeps the hostility it had before factions', () => {
+    const peaceful = ['brahmin', 'townsperson'];
+    for (const def of Object.values(CREATURES)) {
+      expect(startsHostile(def)).toBe(!peaceful.includes(def.id));
+      if (def.faction !== null) expect(FACTIONS[def.faction]).toBeDefined();
     }
     expect(createMonster('b', 'brahmin', 0, 0).hostile).toBe(false);
     expect(createMonster('g', 'gecko', 0, 0).hostile).toBe(true);

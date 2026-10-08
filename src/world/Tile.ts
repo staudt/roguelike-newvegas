@@ -1,4 +1,4 @@
-import { GROUND_LEVELS, PALETTE, ROAD_LEVELS, groundLevel, type GroundLevel } from '../config/palette';
+import { PALETTE, ROAD_LEVELS, groundLevel, type GroundLevel } from '../config/palette';
 
 /**
  * Tiles are deliberately plain data: walkability and opacity live here, not on the map. The one
@@ -18,23 +18,28 @@ export interface TileDef {
   bg?: string;
   /**
    * An object standing on top of some base (rock, wall, fence, safe...): it draws only its glyph and
-   * takes the background of whatever is underneath. The base is stored in the cell's height byte as a
-   * base code (see `baseCodeOf`), and the editor keeps it when you paint an object over a cell.
+   * takes the background of whatever is underneath. The base is a tile of its own, kept in the map's
+   * base layer (`TileMap.getBase`); the cell's height stays the terrain height of that base. The
+   * editor keeps the base when you paint an object over a cell.
    */
   overlay?: boolean;
+  /**
+   * What an object painted over this tile stands on, when that is not the tile itself: a wall built
+   * over a doorway stands on floor, one over the void on bare ground. Overlays keep their own base.
+   */
+  baseAs?: string;
+  /** The tile this one becomes when someone opens it (a closed door opens to `openDoor`). */
+  opensTo?: string;
+  /** Colour on the editor's overview minimap, for tiles whose own background is too dark to show. */
+  editorColor?: string;
+  /** Whether the editor's palette offers this tile (default true). */
+  paintable?: boolean;
 }
-
-/**
- * Base codes for overlay cells, stored in the height byte: 0..3 desert ground at that height,
- * 4..7 road at height code-4, 8 indoor floor. Plain ground cells just store 0..3.
- */
-export const BASE_ROAD = 4;
-export const BASE_FLOOR = 8;
 
 export const TILES: Record<string, TileDef> = {
   // Nothing is here: the edge of the known map. Unwalkable and opaque, drawn as black - the hard
   // stop where the world ends. Cells outside any chunk read as void too.
-  void: { id: 'void', walkable: false, opaque: true, glyph: ' ', fg: '#000000', bg: '#000000' },
+  void: { id: 'void', walkable: false, opaque: true, glyph: ' ', fg: '#000000', bg: '#000000', baseAs: 'ground' },
   ground: { id: 'ground', walkable: true, opaque: false, isGround: true },
   // Paved ground: behaves exactly like ground (it keeps a height and obeys the height rules).
   road: { id: 'road', walkable: true, opaque: false, isGround: true, levels: ROAD_LEVELS },
@@ -45,6 +50,7 @@ export const TILES: Record<string, TileDef> = {
     glyph: '*',
     fg: PALETTE.rockFg,
     overlay: true,
+    editorColor: '#5a5650',
   },
   wall: {
     id: 'wall',
@@ -53,6 +59,7 @@ export const TILES: Record<string, TileDef> = {
     glyph: '#',
     fg: PALETTE.wallFg,
     overlay: true,
+    editorColor: '#b0845a',
   },
   // A closed door blocks movement and sight; bumping it opens it (see TurnManager). Once open it
   // is ordinary walkable, see-through floor, so a lit room is visible through its open door.
@@ -63,6 +70,9 @@ export const TILES: Record<string, TileDef> = {
     glyph: '+',
     fg: PALETTE.doorFg,
     bg: PALETTE.doorBg,
+    baseAs: 'floor',
+    opensTo: 'openDoor',
+    editorColor: PALETTE.doorFg,
   },
   openDoor: {
     id: 'openDoor',
@@ -71,6 +81,8 @@ export const TILES: Record<string, TileDef> = {
     glyph: "'",
     fg: PALETTE.doorFg,
     bg: PALETTE.floorBg,
+    baseAs: 'floor',
+    editorColor: PALETTE.doorFg,
   },
   floor: {
     id: 'floor',
@@ -94,57 +106,20 @@ export interface TileVisual {
   bg: string;
 }
 
-/** The base code a cell offers to an object painted over it (see `BASE_FLOOR`). */
-export function baseCodeOf(id: string, height: number): number {
-  const def = tileDef(id);
-  if (def.overlay) return height; // already holds its own base
-  if (id === 'road') return BASE_ROAD + Math.max(0, Math.min(ROAD_LEVELS.length - 1, height));
-  if (def.isGround) return Math.max(0, Math.min(GROUND_LEVELS.length - 1, height));
-  if (id === 'void') return 0;
-  return BASE_FLOOR;
-}
-
-/** The ground height under a base code (0 for floor): what line of sight treats as the terrain there. */
-export function baseGroundHeight(code: number): number {
-  if (code >= BASE_FLOOR) return 0;
-  return code >= BASE_ROAD ? code - BASE_ROAD : code;
-}
-
-/** How much of its cell a texture glyph paints; the eye blends glyph and background by this much. */
-const GLYPH_COVERAGE: Record<string, number> = { '▒': 0.5, '▓': 0.75, '█': 1 };
-
-function mixHex(a: string, b: string, t: number): string {
-  const channel = (hex: string, at: number) => parseInt(hex.slice(1 + at * 2, 3 + at * 2), 16);
-  const out = [0, 1, 2].map((i) => Math.round(channel(a, i) * (1 - t) + channel(b, i) * t));
-  return '#' + out.map((v) => v.toString(16).padStart(2, '0')).join('');
+/**
+ * The tile an object painted over `id` stands on (see `baseAs`). Never an overlay itself; an
+ * overlay's own base lives in the map's base layer, so callers keep that one instead.
+ */
+export function surfaceUnder(id: string): string {
+  return tileDef(id).baseAs ?? id;
 }
 
 /**
- * The colour a ground cell *looks* like: its glyph and background blended by the glyph's coverage. A
- * rise drawn as a near-solid `▓` or `█` reads much lighter than its raw background, and an object
- * standing there must match that, not the dark background underneath the texture.
+ * Resolves what to actually draw for a tile, folding in per-cell height for ground tiles and the
+ * base under objects: an object wears the background its base would have at this height. `base` is
+ * a tile id; a missing base (or void) reads as bare ground.
  */
-export function perceivedColour(level: GroundLevel): string {
-  return mixHex(level.bg, level.fg, GLYPH_COVERAGE[level.glyph] ?? 0);
-}
-
-function baseBackground(code: number): string {
-  if (code >= BASE_FLOOR) return PALETTE.floorBg;
-  if (code >= BASE_ROAD) return perceivedColour(ROAD_LEVELS[Math.min(ROAD_LEVELS.length - 1, code - BASE_ROAD)]!);
-  return perceivedColour(groundLevel(code));
-}
-
-function luminance(hex: string): number {
-  const c = (at: number) => parseInt(hex.slice(1 + at * 2, 3 + at * 2), 16);
-  return 0.299 * c(0) + 0.587 * c(1) + 0.114 * c(2);
-}
-
-/** Keeps an object's glyph readable: on a background too close to its colour it is drawn dark instead. */
-const MIN_GLYPH_CONTRAST = 30;
-const DARK_GLYPH = '#1c140a';
-
-/** Resolves what to actually draw for a tile, folding in per-cell height for ground tiles and the base under objects. */
-export function visualFor(id: string, height: number): TileVisual {
+export function visualFor(id: string, height: number, base?: string): TileVisual {
   const def = tileDef(id);
   if (def.isGround) {
     const level = def.levels
@@ -153,9 +128,8 @@ export function visualFor(id: string, height: number): TileVisual {
     return { glyph: level.glyph, fg: level.fg, bg: level.bg };
   }
   if (def.overlay) {
-    const bg = baseBackground(height);
-    const fg = def.fg ?? '#ffffff';
-    return { glyph: def.glyph ?? '?', fg: Math.abs(luminance(fg) - luminance(bg)) < MIN_GLYPH_CONTRAST ? DARK_GLYPH : fg, bg };
+    const under = base && base !== 'void' && !tileDef(base).overlay ? base : 'ground';
+    return { glyph: def.glyph ?? '?', fg: def.fg ?? '#ffffff', bg: visualFor(under, height).bg };
   }
   return { glyph: def.glyph ?? '?', fg: def.fg ?? '#ffffff', bg: def.bg ?? '#000000' };
 }
@@ -206,7 +180,7 @@ export function tileIsGround(index: number): boolean {
   return GROUND_LIKE_BY_INDEX[index] ?? false;
 }
 
-/** An object drawn over a base (rock, wall...): its height byte is a base code, not a terrain height. */
+/** An object drawn over a base (rock, wall...): what it stands on is in the map's base layer. */
 export function tileIsOverlay(index: number): boolean {
   return OVERLAY_BY_INDEX[index] ?? false;
 }
@@ -218,3 +192,26 @@ export function tileWalkable(index: number): boolean {
 export function tileOpaque(index: number): boolean {
   return OPAQUE_BY_INDEX[index] ?? true;
 }
+
+/** The index each tile becomes when opened, or -1 for tiles that do not open. */
+const OPENS_TO_BY_INDEX: number[] = TILE_ORDER.map((id) => {
+  const target = tileDef(id).opensTo;
+  return target === undefined ? -1 : tileIndex(target);
+});
+
+/** The tile index this one turns into when opened (a closed door), or null if it does not open. */
+export function tileOpensTo(index: number): number | null {
+  const target = OPENS_TO_BY_INDEX[index] ?? -1;
+  return target < 0 ? null : target;
+}
+
+/** Whether bumping into this tile opens it (closed doors, gates...). */
+export function tileOpenable(index: number): boolean {
+  return (OPENS_TO_BY_INDEX[index] ?? -1) >= 0;
+}
+
+/** The tiles the editor palette offers, in TILE_ORDER with `void` (the eraser) last. */
+export const PAINTABLE_TILES: readonly string[] = [
+  ...TILE_ORDER.filter((id) => id !== 'void' && tileDef(id).paintable !== false),
+  'void',
+];

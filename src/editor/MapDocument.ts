@@ -5,8 +5,8 @@ import { ITEMS } from '../items/ItemData';
 import type { BuildingPatch } from '../world/buildingTemplate';
 import { ChunkedMap, chunkKey, createChunk, type Chunk } from '../world/ChunkedMap';
 import { chunkToText, decodeChunk, encodeChunk, type ChunkJSON } from '../world/ChunkCodec';
-import { FlatMap } from '../world/FlatMap';
-import { GROUND_TILE, VOID_TILE, baseCodeOf, baseGroundHeight, tileIdOf, tileIndex, tileIsGround, tileIsOverlay } from '../world/Tile';
+import { FlatMap, decodeBases } from '../world/FlatMap';
+import { GROUND_TILE, VOID_TILE, surfaceUnder, tileIdOf, tileIndex, tileIsGround, tileIsOverlay } from '../world/Tile';
 import type { TileMap } from '../world/TileMap';
 
 /**
@@ -127,6 +127,7 @@ export interface FlatSpaceJSON {
   height: number;
   tiles: string[];
   heights: number[];
+  bases?: string[];
   npcs: NpcJson[];
   monsters?: MonsterJson[];
   transitions: Array<{ x: number; y: number; toSpace: string }>;
@@ -148,6 +149,7 @@ interface CellDelta {
   y: number;
   oldTile: number;
   oldHeight: number;
+  oldBase: number;
 }
 
 interface Stroke {
@@ -389,8 +391,12 @@ export class MapDocument {
 
   static fromFlat(data: FlatSpaceJSON): MapDocument {
     const expected = data.width * data.height;
-    if (data.tiles.length !== expected || data.heights.length !== expected) {
-      throw new Error(`Space "${data.id}": tiles/heights length does not match ${data.width}x${data.height}`);
+    if (
+      data.tiles.length !== expected ||
+      data.heights.length !== expected ||
+      (data.bases !== undefined && data.bases.length !== expected)
+    ) {
+      throw new Error(`Space "${data.id}": tiles/heights/bases length does not match ${data.width}x${data.height}`);
     }
     const map = new FlatMap(
       data.width,
@@ -398,6 +404,7 @@ export class MapDocument {
       data.worldOrigin,
       Uint8Array.from(data.tiles, (t) => tileIndex(t)),
       Uint8Array.from(data.heights),
+      decodeBases(data.bases, expected),
     );
     return new MapDocument('flat', map, data);
   }
@@ -410,6 +417,12 @@ export class MapDocument {
 
   heightAt(x: number, y: number): number {
     return this.map.getHeight(x, y);
+  }
+
+  /** The tile an object stands on ('' when the cell has no base). */
+  baseAt(x: number, y: number): string {
+    const base = this.map.getBase(x, y);
+    return base === 0 ? '' : tileIdOf(base);
   }
 
   /** The chunked map, if this is the world. */
@@ -447,6 +460,7 @@ export class MapDocument {
       const c = stroke.cells[i]!;
       this.map.setTile(c.x, c.y, c.oldTile);
       this.map.setHeight(c.x, c.y, c.oldHeight);
+      this.map.setBase(c.x, c.y, c.oldBase);
     }
     const chunked = this.chunked();
     if (chunked) {
@@ -476,7 +490,13 @@ export class MapDocument {
     const key = `${x},${y}`;
     if (s.seen.has(key)) return;
     s.seen.add(key);
-    s.cells.push({ x, y, oldTile: this.map.getTile(x, y), oldHeight: this.map.getHeight(x, y) });
+    s.cells.push({
+      x,
+      y,
+      oldTile: this.map.getTile(x, y),
+      oldHeight: this.map.getHeight(x, y),
+      oldBase: this.map.getBase(x, y),
+    });
   }
 
   // --- tile painting ----------------------------------------------------------------------------
@@ -492,11 +512,19 @@ export class MapDocument {
     if (this.map.getTile(x, y) === tile && (tile === VOID_TILE || this.map.has(x, y))) return false;
     this.record(x, y);
     // An object keeps what it stands on: painting a rock or wall over ground, road or floor stores that
-    // base in the height byte, and painting ground back over an object restores its height.
-    const base = baseCodeOf(tileIdOf(this.map.getTile(x, y)), this.map.getHeight(x, y));
+    // tile as its base (and keeps the terrain height); an object over an object keeps the old base.
+    // Painting a plain tile back over an object drops the base, and the height is still the terrain's.
+    const old = this.map.getTile(x, y);
+    if (tileIsOverlay(tile)) {
+      if (!tileIsOverlay(old)) {
+        const surface = tileIndex(surfaceUnder(tileIdOf(old)));
+        this.map.setBase(x, y, surface);
+        if (!tileIsGround(surface)) this.map.setHeight(x, y, 0);
+      }
+    } else {
+      this.map.setBase(x, y, 0);
+    }
     this.map.setTile(x, y, tile);
-    if (tileIsOverlay(tile)) this.map.setHeight(x, y, base);
-    else if (tileIsGround(tile)) this.map.setHeight(x, y, baseGroundHeight(base));
     return true;
   }
 
@@ -688,10 +716,12 @@ export class MapDocument {
     const b = this.map.bounds();
     const tiles: string[] = [];
     const heights: number[] = [];
+    const bases: string[] = [];
     for (let y = b.y; y < b.y + b.height; y++) {
       for (let x = b.x; x < b.x + b.width; x++) {
         tiles.push(this.tileAt(x, y));
         heights.push(this.heightAt(x, y));
+        bases.push(this.baseAt(x, y));
       }
     }
     const json: FlatSpaceJSON = {
@@ -703,6 +733,7 @@ export class MapDocument {
       height: b.height,
       tiles,
       heights,
+      ...(bases.some((n) => n !== '') ? { bases } : {}),
       npcs: this.npcs.map(npcToJson),
       monsters: this.monsters.map(monsterToJson),
       transitions: this.transitions.map((t) => ({ ...t })),

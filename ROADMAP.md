@@ -41,7 +41,7 @@ Ground items (`,` pick up with an "All of it" menu, `d` drop), stimpaks (`q`), a
 creature; shots alert nearby hostiles). Undroppable items (the Pip-Boy). Creatures carry items from map
 loadouts, drop them (plus rolled loot) when they die, and use them: a provoked Ringo draws his pistol,
 lines up and shoots back; creatures fight with what they wield and the log names it. Status bar shows
-ammo and what you wield; objects (rock, wall) take the base under them (`overlay` tiles, base code in the height byte), red/amber shot tracers (the map shows creatures as they were before the turn until the tracers land, so kills, monster moves and a fatal shot's death screen wait for the animation; the log still updates at once). Editor: ground-item mode and NPC/monster loadouts.
+ammo and what you wield; objects (rock, wall) take the base under them (`overlay` tiles; the base is its own map layer, stored by tile name), red/amber shot tracers (the map shows creatures as they were before the turn until the tracers land, so kills, monster moves and a fatal shot's death screen wait for the animation; the log still updates at once). Editor: ground-item mode and NPC/monster loadouts.
 483 tests.
 
 ## Planned (in order) — and how each fits the current code
@@ -135,15 +135,50 @@ gun readies its ammunition automatically (the kind last used with that gun, else
 - Editor: "Add floor" on a building (new file, stair tiles placed on both floors), and the Building
   tool grows a floor count.
 
+### Item condition and armor (done; repair next)
+New Vegas rules, scaled to this game: weapons, guns and armor have `durability` points. A shot or a landed blow
+costs `WEAR_PER_ATTACK`; armor loses 35% of the damage it stops, on the piece over the struck spot (head piece for
+head hits, body piece otherwise). Worn guns keep 66% of their damage at 0%, melee 50%; guns also lose up to 20 to-hit
+points and below 50% can jam (up to 20% a shot; the turn goes, the round stays). Armor: a body and a head slot,
+`W`/`T`, DT summed with a creature's natural hide; at least 20% of a hit always lands; DT falls to half as the
+piece wears. Broken (0%) things come off and can't be used. Map gear starts used (carried 20-70%, ground 30-90%;
+`condition` in percent pins it). Firing or picking up readies ammo that fits the gun in hand.
+New content with it: varmint rifle (5.56mm rounds), tire iron, rolling pin, kitchen knife; young gecko (light,
+quick, frail), giant rat, wild dog, giant mantis (natural DT 1); grown geckos are heavier to kick (mass 3.5). All are
+in the editor's palettes; none is placed in the map yet.
+Next: repair (combine with a copy of the same item, a Repair skill later), the editor's UI for `wear` and
+`condition` (they already survive a save), armor and weapon prices once there is trade.
+
 ### Later
 VATS (limb targeting at an AP cost; the limb system is the groundwork) → quests learned from overheard
 monologues → save/load (spaces serialize independently, which multi-level needs anyway) → larger map,
 shops/trade → perks and skills → SPECIAL allocation screen.
 
+### Scaling refactor (from the October 2026 review)
+Ahead of many more creatures, factions, tiles and items. In order:
+1. Done: objects keep their base as a tile in a `bases` map layer (saved by name), not a code in the height byte.
+2. Done: creature behaviour comes from traits on the kind (`opensDoors`, `social`, wander), not NPC vs monster;
+   `MonsterData` became `CreatureData`, named NPCs are a kind (`townsperson` by default) plus identity. A Powder
+   Ganger or NCR trooper is now just a table entry (stats, faction, `social`, a loadout in the map).
+3. Spatial index: measured and deferred into 7. `creatureAt` is ~5 µs at 200 creatures in a space and ~34 µs at
+   2,000; it only matters for a world-wide list of ~10k, which per-chunk storage removes. Done now: the renderer
+   finds the top item per cell in one pass (it was quadratic in ground items).
+4. Done: A* in `nextStepToward`. On the real map it finds 230/230 reachable hunts (BFS on the same 600-node budget
+   found 57, none past 40 steps) in a third of the time. Hunters and gunshot investigators now arrive from far off.
+   A shared distance map per tick is only worth it once many hunters chase at once; measure first.
+5. Done: tile behaviour from data: `opensTo` (doors; gates and locked doors later), `editorColor`, `paintable`;
+   the editor palette and overview colours come from `TILES`.
+6. Done: faction relations live in `FactionDef` (`beast`, `enemies` listed on one side), and `factionRelation`
+   is a lookup in a table built once at load, ready for per-pair infighting checks.
+7. Per-chunk creatures/items (also in Scale follow-ups); instance ids unique across spaces before save/load.
+8. Done: `tests/data-integrity.test.ts` cross-checks the tables and the map (ids, loot, ammo types, factions,
+   NPC profiles and kinds, hit profiles summing to 100). `ItemId` / `CreatureId` type ids named in code.
+9. Split `Game.ts` and `editor/main.ts` when next touched.
+
 ### Smaller open items
 - **Scale follow-ups:** the editor loads every chunk file up front (lazy loading once there are hundreds);
   long-distance travel/run commands and fast travel between discovered places; creatures stored per chunk
-  (spawn/despawn) instead of one list; hunters farther than ~20 cells in open ground exceed the path budget.
+  (spawn/despawn) instead of one list.
 - **Doors:** hostile humanoids (and gun-wielding NPCs) should open closed doors on their way to you;
   animals can't. Add `c` close and locked doors/keys. Lit vs dark rooms (a tile `indoor` flag) later.
 - **Balance:** a full-HP bare-handed player beats a lone gecko ~99.95% of the time. Consider lowering

@@ -63,10 +63,10 @@ export function emitSound(
           // Close enough to keep hunting by itself: alerted. Further off it only knows where the shot was.
           if (distance <= c.awareness * LOSE_TRACK_FACTOR) c.alerted = true;
           else if (!c.alerted) c.investigate = { x: goal.x, y: goal.y };
-        } else if (c.kind === 'npc' && !c.investigate && rng && randomInt(rng, 1, 100) <= GUNSHOT_CURIOSITY_CHANCE) {
+        } else if (c.social && !c.investigate && rng && randomInt(rng, 1, 100) <= GUNSHOT_CURIOSITY_CHANCE) {
           c.investigate = { x: goal.x, y: goal.y };
         }
-      } else if (!c.hostile && c.kind === 'npc' && c.alarm === null) {
+      } else if (!c.hostile && c.social && c.alarm === null) {
         c.alarm = 'pending';
         c.investigate = { x: goal.x, y: goal.y };
       }
@@ -106,7 +106,7 @@ export function provoke(state: GameState, victim: Creature, killed: boolean): vo
     if (wasPeaceful) victim.provoked = true;
   }
 
-  if (wasPeaceful && victim.kind === 'npc') {
+  if (wasPeaceful && victim.social) {
     // Narrated here when we can see them; emitSound only adds 'you hear' for an unseen source.
     if (getActiveSpace(state).visible.has(victim.x, victim.y)) {
       addMessage(state, `${capitalize(theName(victim))} screams!`);

@@ -1,3 +1,4 @@
+import { MIN_DAMAGE_FRACTION } from '../config/constants';
 import type { ShotProfile } from '../items/ItemData';
 import { aimSpread, computeToHit, crowdPenalty, rangeAccuracyBonus, strengthDamageBonus, targetEvasion } from './CombatFormulas';
 import type { AttackProfile, Combatant } from './Combatant';
@@ -15,6 +16,23 @@ export interface AttackResult {
   limbBefore: LimbCondition | null;
   limbAfter: LimbCondition | null;
   killed: boolean;
+  /** Damage the defender's Damage Threshold stopped (0 on a miss or with no DT): what wears armor. */
+  absorbed: number;
+}
+
+function missed(): AttackResult {
+  return { hit: false, damage: 0, limb: null, limbBefore: null, limbAfter: null, killed: false, absorbed: 0 };
+}
+
+/**
+ * Damage Threshold, New Vegas style: `dt` comes off the blow, but at least MIN_DAMAGE_FRACTION of
+ * it always lands (and never less than 1). Returns what lands and what was stopped.
+ */
+export function applyThreshold(damage: number, dt: number): { damage: number; absorbed: number } {
+  if (dt <= 0) return { damage, absorbed: 0 };
+  const landed = Math.max(1, Math.ceil(damage * MIN_DAMAGE_FRACTION), Math.round(damage - dt));
+  const final = Math.min(damage, landed);
+  return { damage: final, absorbed: damage - final };
 }
 
 /** Chooses which limb a blow lands on, weighted by the weapon's hit profile. */
@@ -34,14 +52,16 @@ export function pickLimb(
 }
 
 /**
- * One melee blow: roll to hit, pick the limb, roll damage, and apply it to both the limb and the
- * defender's HP. Mutates `defender`. Pure apart from that — all randomness comes from `rng`.
+ * One melee blow: roll to hit, pick the limb, roll damage, take off the defender's Damage
+ * Threshold `dt`, and apply it to both the limb and the defender's HP. Mutates `defender`. Pure
+ * apart from that — all randomness comes from `rng`.
  */
 export function resolveMelee(
   rng: RNG,
   attacker: Combatant,
   defender: Combatant,
   attack: AttackProfile,
+  dt = 0,
 ): AttackResult {
   const chance = computeToHit(
     attacker.agility,
@@ -50,15 +70,14 @@ export function resolveMelee(
     defender.ac,
   );
 
-  if (randomInt(rng, 1, 100) > chance) {
-    return { hit: false, damage: 0, limb: null, limbBefore: null, limbAfter: null, killed: false };
-  }
+  if (randomInt(rng, 1, 100) > chance) return missed();
 
   const limb = pickLimb(rng, defender, attack);
-  let damage = randomInt(rng, attack.damage.min, attack.damage.max);
+  let damage = scaled(randomInt(rng, attack.damage.min, attack.damage.max), attack.damageFactor);
   if (attack.strengthBonus) damage += strengthDamageBonus(attacker.strength);
   if (limb.kind === 'head') damage = Math.round(damage * HEAD_DAMAGE_MULTIPLIER);
-  damage = Math.max(1, damage);
+  const blow = applyThreshold(Math.max(1, damage), dt);
+  damage = blow.damage;
 
   const limbBefore = limbCondition(limb);
   limb.hp = Math.max(0, limb.hp - damage);
@@ -71,7 +90,13 @@ export function resolveMelee(
     limbBefore,
     limbAfter: limbCondition(limb),
     killed: defender.hp <= 0,
+    absorbed: blow.absorbed,
   };
+}
+
+/** A rolled damage scaled by a weapon's condition factor (absent = untouched). */
+function scaled(roll: number, factor: number | undefined): number {
+  return factor === undefined || factor === 1 ? roll : Math.max(1, Math.round(roll * factor));
 }
 
 /**
@@ -87,6 +112,7 @@ export function resolveShot(
   shot: ShotProfile,
   distanceCells: number,
   adjacentHostiles = 0,
+  dt = 0,
 ): AttackResult {
   const chance = computeToHit(
     shooter.perception ?? shooter.agility,
@@ -95,18 +121,17 @@ export function resolveShot(
     target.ac,
   );
 
-  if (randomInt(rng, 1, 100) > chance) {
-    return { hit: false, damage: 0, limb: null, limbBefore: null, limbAfter: null, killed: false };
-  }
+  if (randomInt(rng, 1, 100) > chance) return missed();
 
   const spread = aimSpread(shot.accuracy, distanceCells);
   const p = shot.hitProfile;
   const limb = pickLimb(rng, target, {
     hitProfile: { head: p.head * spread, torso: p.torso, arm: p.arm * spread, leg: p.leg * spread },
   });
-  let damage = randomInt(rng, shot.damage.min, shot.damage.max);
+  let damage = scaled(randomInt(rng, shot.damage.min, shot.damage.max), shot.damageFactor);
   if (limb.kind === 'head') damage = Math.round(damage * HEAD_DAMAGE_MULTIPLIER);
-  damage = Math.max(1, damage);
+  const blow = applyThreshold(Math.max(1, damage), dt);
+  damage = blow.damage;
 
   const limbBefore = limbCondition(limb);
   limb.hp = Math.max(0, limb.hp - damage);
@@ -119,5 +144,6 @@ export function resolveShot(
     limbBefore,
     limbAfter: limbCondition(limb),
     killed: target.hp <= 0,
+    absorbed: blow.absorbed,
   };
 }

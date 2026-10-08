@@ -3,7 +3,8 @@
  * list of limbs, each with its own hit points. Every blow lands on one limb, hurting both that
  * limb and the creature's overall HP. A limb at half health is *hurt*, at zero it is *crippled*,
  * and what that costs depends on the limb's kind: legs slow you down, arms spoil your aim, a
- * crippled head rattles you.
+ * crippled head rattles you. The torso (an animal's body) takes blows but is never hurt or
+ * crippled: in New Vegas crippling it does next to nothing, so it would only be log noise here.
  */
 export type LimbKind = 'head' | 'torso' | 'arm' | 'leg';
 export type LimbCondition = 'ok' | 'hurt' | 'crippled';
@@ -59,6 +60,7 @@ export function createLimbs(plan: BodyPlanId, maxHp: number): Limb[] {
 }
 
 export function limbCondition(limb: Limb): LimbCondition {
+  if (limb.kind === 'torso') return 'ok';
   if (limb.hp <= 0) return 'crippled';
   if (limb.hp <= limb.maxHp / 2) return 'hurt';
   return 'ok';

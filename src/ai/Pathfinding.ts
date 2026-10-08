@@ -1,6 +1,7 @@
 import { PATH_NODE_BUDGET } from '../config/constants';
 import { DIRECTION_VECTORS, type Point } from '../utils/geometry';
-import { canStep, getTileId, type MapGrid } from '../world/GameMap';
+import { canStep, type MapGrid } from '../world/GameMap';
+import { tileOpenable } from '../world/Tile';
 
 const NEIGHBOURS = Object.values(DIRECTION_VECTORS);
 
@@ -18,6 +19,65 @@ function pointOf(k: number): Point {
   return { x, y };
 }
 
+/** A cell waiting in the A* open list. `f` = steps so far + Chebyshev distance left. */
+interface OpenNode {
+  x: number;
+  y: number;
+  g: number;
+  f: number;
+  /** Insertion order: the last tie-break, so equal paths always resolve the same way. */
+  seq: number;
+}
+
+/** Lower f first; on a tie the one nearer the goal (higher g), then the older. */
+function before(a: OpenNode, b: OpenNode): boolean {
+  if (a.f !== b.f) return a.f < b.f;
+  if (a.g !== b.g) return a.g > b.g;
+  return a.seq < b.seq;
+}
+
+/** A plain binary min-heap over `before`. */
+class OpenList {
+  private readonly items: OpenNode[] = [];
+
+  get size(): number {
+    return this.items.length;
+  }
+
+  push(node: OpenNode): void {
+    const items = this.items;
+    items.push(node);
+    let i = items.length - 1;
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (!before(items[i]!, items[parent]!)) break;
+      [items[i], items[parent]] = [items[parent]!, items[i]!];
+      i = parent;
+    }
+  }
+
+  pop(): OpenNode {
+    const items = this.items;
+    const top = items[0]!;
+    const last = items.pop()!;
+    if (items.length > 0) {
+      items[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1;
+        const r = l + 1;
+        let best = i;
+        if (l < items.length && before(items[l]!, items[best]!)) best = l;
+        if (r < items.length && before(items[r]!, items[best]!)) best = r;
+        if (best === i) break;
+        [items[i], items[best]] = [items[best]!, items[i]!];
+        i = best;
+      }
+    }
+    return top;
+  }
+}
+
 /**
  * First step of a shortest path from `from` to `to` over `grid` (world coordinates), honouring
  * the real movement rules (`canStep`, so height, barriers and the void edge count). `blocked` marks
@@ -26,6 +86,10 @@ function pointOf(k: number): Point {
  * within the node budget (which also bounds the cost: this runs for every hunter every turn).
  * With `opensDoors` (people, not animals) a closed door counts as a way through: the walker opens it
  * when it gets there.
+ *
+ * A* with the Chebyshev distance as the estimate (exact on open ground, where every step costs one),
+ * so in the open it expands little more than the path itself and the budget reaches far; it only
+ * fans out where walls or cliffs are in the way.
  */
 export function nextStepToward(
   grid: MapGrid,
@@ -37,30 +101,40 @@ export function nextStepToward(
 ): Point | null {
   if (from.x === to.x && from.y === to.y) return null;
 
+  const estimate = (x: number, y: number): number => Math.max(Math.abs(to.x - x), Math.abs(to.y - y));
   const cameFrom = new Map<number, number>();
+  const bestG = new Map<number, number>();
   const startKey = cellKey(from.x, from.y);
   cameFrom.set(startKey, -1);
+  bestG.set(startKey, 0);
 
-  const queue: Point[] = [from];
-  let head = 0;
+  const open = new OpenList();
+  let seq = 0;
+  open.push({ x: from.x, y: from.y, g: 0, f: estimate(from.x, from.y), seq: seq++ });
   let expanded = 0;
 
-  while (head < queue.length && expanded < budget) {
-    const current = queue[head++]!;
+  while (open.size > 0 && expanded < budget) {
+    const current = open.pop();
+    const currentKey = cellKey(current.x, current.y);
+    if (current.g > bestG.get(currentKey)!) continue; // a stale entry: reached more cheaply since
     expanded++;
 
     for (const v of NEIGHBOURS) {
       const next = { x: current.x + v.x, y: current.y + v.y };
       const nextKey = cellKey(next.x, next.y);
-      if (cameFrom.has(nextKey)) continue;
+      const g = current.g + 1;
+      const known = bestG.get(nextKey);
+      if (known !== undefined && known <= g) continue;
 
       const isGoal = next.x === to.x && next.y === to.y;
       if (!isGoal && blocked(next.x, next.y)) continue;
-      const door = opensDoors && getTileId(grid, next.x, next.y) === 'door';
+      const door = opensDoors && tileOpenable(grid.getTile(next.x, next.y));
       if (!door && !canStep(grid, current, next) && !isGoal) continue;
 
-      cameFrom.set(nextKey, cellKey(current.x, current.y));
+      cameFrom.set(nextKey, currentKey);
+      bestG.set(nextKey, g);
 
+      // Unit steps and a consistent estimate: the goal is first reached by a shortest path.
       if (isGoal) {
         // Walk back to the cell right after `from`.
         let step = nextKey;
@@ -71,7 +145,7 @@ export function nextStepToward(
         }
         return pointOf(step);
       }
-      queue.push(next);
+      open.push({ x: next.x, y: next.y, g, f: g + estimate(next.x, next.y), seq: seq++ });
     }
   }
 

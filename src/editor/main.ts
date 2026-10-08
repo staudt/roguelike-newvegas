@@ -3,7 +3,8 @@ import { GROUND_LEVELS, MAX_GROUND_HEIGHT, PALETTE } from '../config/palette';
 import { linePoints, type Point } from '../utils/geometry';
 import { CHUNK_SIZE } from '../world/ChunkedMap';
 import type { ChunkJSON } from '../world/ChunkCodec';
-import { BASE_FLOOR, TILES, VOID_TILE, tileIdOf, tileIndex, visualFor } from '../world/Tile';
+import { PAINTABLE_TILES, TILES, VOID_TILE, tileDef, tileIdOf, tileIndex, visualFor } from '../world/Tile';
+import { isConnectedWall } from '../ui/WallGlyphs';
 import type { TileMap } from '../world/TileMap';
 import {
   buildBuilding,
@@ -19,7 +20,7 @@ import {
   type DoorSide,
 } from '../world/buildingTemplate';
 import { INTERACTION_LABELS, type InteractionId } from '../entities/Npc';
-import { MONSTERS, monsterStartsHostile } from '../entities/MonsterData';
+import { CREATURES, startsHostile } from '../entities/CreatureData';
 import { ITEMS, type ItemDef } from '../items/ItemData';
 import {
   FILL_CAP,
@@ -68,7 +69,6 @@ type Mode = 'tile' | 'height' | 'npc' | 'monster' | 'item' | 'transition';
 type TileTool = 'pencil' | 'line' | 'rect' | 'box' | 'building' | 'fill' | 'pick';
 type HeightTool = 'raise' | 'lower' | 'set';
 
-const PAINTABLE_TILES = ['ground', 'rock', 'wall', 'door', 'openDoor', 'floor', 'road', 'void'] as const;
 
 const MINIMAP_MAX_W = 220;
 const MINIMAP_MAX_H = 170;
@@ -195,7 +195,7 @@ async function boot(): Promise<void> {
   let selectedNpcId: string | null = null;
   let selectedTransition: EditableTransition | null = null;
   let selectedMonster: EditableMonster | null = null;
-  let brushMonster: string = Object.keys(MONSTERS)[0]!;
+  let brushMonster: string = Object.keys(CREATURES)[0]!;
   let selectedItem: EditableGroundItem | null = null;
   let brushItem: string = Object.keys(ITEMS)[0]!;
   /** Stack size for newly placed / carried ammo. */
@@ -439,14 +439,14 @@ async function boot(): Promise<void> {
         const tile = map.getTile(x, y);
         if (tile === VOID_TILE) continue; // already black
         const id = tileIdOf(tile);
-        const visual = visualFor(id, map.getHeight(x, y));
+        const visual = visualFor(id, map.getHeight(x, y), tileIdOf(map.getBase(x, y)));
         const px = (x - camX) * cellW;
         const py = (y - camY) * cell;
         ctx.fillStyle = visual.bg;
         ctx.fillRect(px, py, cellW, cell);
         if (!text) continue;
         ctx.fillStyle = visual.fg;
-        ctx.fillText(id === 'wall' ? wallGlyphAt(map, x, y) : visual.glyph, px + cellW / 2, py + cell / 2);
+        ctx.fillText(isConnectedWall(id) ? wallGlyphAt(map, x, y) : visual.glyph, px + cellW / 2, py + cell / 2);
       }
     }
 
@@ -458,9 +458,9 @@ async function boot(): Promise<void> {
     }
     drawItems();
     for (const monster of doc.monsters) {
-      const def = MONSTERS[monster.defId];
+      const def = CREATURES[monster.defId];
       drawMarker(monster.x, monster.y, def?.glyph ?? '?', def?.fg ?? PALETTE.hostileRing, monster === selectedMonster);
-      if (def && monsterStartsHostile(def)) drawRing(monster.x, monster.y);
+      if (def && startsHostile(def)) drawRing(monster.x, monster.y);
     }
     for (const npc of doc.npcs) {
       drawMarker(npc.x, npc.y, '@', npc.fg ?? PALETTE.npcFg, npc.id === selectedNpcId);
@@ -625,7 +625,7 @@ async function boot(): Promise<void> {
         const px = sx(x);
         const py = sy(y);
         if (px + cellW < 0 || py + cell < 0 || px > canvas.width || py > canvas.height) continue;
-        const visual = visualFor('wall', BASE_FLOOR);
+        const visual = visualFor('wall', 0, 'floor');
         ctx.fillStyle = visual.bg;
         ctx.fillRect(px, py, cellW, cell);
         ctx.fillStyle = visual.fg;
@@ -745,15 +745,13 @@ async function boot(): Promise<void> {
         const tile = doc.map.getTile(wx, wy);
         if (tile === VOID_TILE) continue;
         const height = doc.map.getHeight(wx, wy);
-        const key = tile * 16 + height;
+        const base = doc.map.getBase(wx, wy);
+        const key = (tile * 256 + base) * 16 + height;
         let color = colors.get(key);
         if (color === undefined) {
-          color = visualFor(tileIdOf(tile), height).bg;
-          // Walls and doors are dark on dark; lighten them so structures show on the overview.
+          // Walls and doors are dark on dark; their editorColor lets structures show on the overview.
           const id = tileIdOf(tile);
-          if (id === 'wall') color = '#b0845a';
-          else if (id === 'door' || id === 'openDoor') color = PALETTE.doorFg;
-          else if (id === 'rock') color = '#5a5650';
+          color = tileDef(id).editorColor ?? visualFor(id, height, tileIdOf(base)).bg;
           colors.set(key, color);
         }
         m.fillStyle = color;
@@ -1479,7 +1477,7 @@ async function boot(): Promise<void> {
     wrap.append(buildHint('Pick a type, then click an empty cell to place one. Click an existing monster to select it, drag to move. Delete/Backspace removes the selected monster.'));
     const list = document.createElement('div');
     list.className = 'monster-list';
-    for (const def of Object.values(MONSTERS)) {
+    for (const def of Object.values(CREATURES)) {
       const button = document.createElement('button');
       button.className = `monster-row${brushMonster === def.id ? ' on' : ''}`;
       const glyph = document.createElement('span');
@@ -1487,7 +1485,7 @@ async function boot(): Promise<void> {
       glyph.style.color = def.fg;
       glyph.textContent = def.glyph;
       const label = document.createElement('span');
-      label.textContent = monsterStartsHostile(def) ? def.name : `${def.name} (peaceful)`;
+      label.textContent = startsHostile(def) ? def.name : `${def.name} (peaceful)`;
       button.append(glyph, label);
       button.addEventListener('click', () => {
         brushMonster = def.id;
@@ -2034,15 +2032,15 @@ async function boot(): Promise<void> {
   function buildMonsterForm(monster: EditableMonster): HTMLElement {
     const form = document.createElement('div');
     form.className = 'form';
-    const def = MONSTERS[monster.defId];
+    const def = CREATURES[monster.defId];
 
     const info = document.createElement('div');
     info.className = 'id-display';
-    info.textContent = `${monster.defId} @ (${monster.x}, ${monster.y})${def && !monsterStartsHostile(def) ? ' (peaceful)' : ''}`;
+    info.textContent = `${monster.defId} @ (${monster.x}, ${monster.y})${def && !startsHostile(def) ? ' (peaceful)' : ''}`;
     form.append(info);
 
     const typeSelect = document.createElement('select');
-    for (const entry of Object.values(MONSTERS)) {
+    for (const entry of Object.values(CREATURES)) {
       const option = document.createElement('option');
       option.value = entry.id;
       option.textContent = entry.name;
