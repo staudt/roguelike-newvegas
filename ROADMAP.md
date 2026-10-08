@@ -146,8 +146,12 @@ Ahead of many more creatures, factions, tiles and items. In order:
 2. Done: creature behaviour comes from traits on the kind (`opensDoors`, `social`, wander), not NPC vs monster;
    `MonsterData` became `CreatureData`, named NPCs are a kind (`townsperson` by default) plus identity. A Powder
    Ganger or NCR trooper is now just a table entry (stats, faction, `social`, a loadout in the map).
-3. Spatial index on `Space` for creatures and items by cell (`creatureAt`, ground items, the renderer).
-4. A* pathfinding (hunters lose you past ~12 cells today), then a shared distance map per tick for many hunters.
+3. Spatial index: measured and deferred into 7. `creatureAt` is ~5 µs at 200 creatures in a space and ~34 µs at
+   2,000; it only matters for a world-wide list of ~10k, which per-chunk storage removes. Done now: the renderer
+   finds the top item per cell in one pass (it was quadratic in ground items).
+4. Done: A* in `nextStepToward`. On the real map it finds 230/230 reachable hunts (BFS on the same 600-node budget
+   found 57, none past 40 steps) in a third of the time. Hunters and gunshot investigators now arrive from far off.
+   A shared distance map per tick is only worth it once many hunters chase at once; measure first.
 5. Tile behaviour from data: `opensTo` for doors/gates, editor palette and overview colours from `TILES`.
 6. Faction relations in `FactionDef` (`beast`, `enemies`), a precomputed relation table for infighting.
 7. Per-chunk creatures/items (also in Scale follow-ups); instance ids unique across spaces before save/load.
@@ -157,7 +161,7 @@ Ahead of many more creatures, factions, tiles and items. In order:
 ### Smaller open items
 - **Scale follow-ups:** the editor loads every chunk file up front (lazy loading once there are hundreds);
   long-distance travel/run commands and fast travel between discovered places; creatures stored per chunk
-  (spawn/despawn) instead of one list; hunters farther than ~20 cells in open ground exceed the path budget.
+  (spawn/despawn) instead of one list.
 - **Doors:** hostile humanoids (and gun-wielding NPCs) should open closed doors on their way to you;
   animals can't. Add `c` close and locked doors/keys. Lit vs dark rooms (a tile `indoor` flag) later.
 - **Balance:** a full-HP bare-handed player beats a lone gecko ~99.95% of the time. Consider lowering
