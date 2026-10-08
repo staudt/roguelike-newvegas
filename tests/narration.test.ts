@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AttackResult } from '../src/combat/CombatResolver';
 import type { Limb } from '../src/combat/Limbs';
-import { capitalize, narrateAttack, type Party } from '../src/combat/Narration';
+import { capitalize, narrateAttack, narrateShot, type Party } from '../src/combat/Narration';
 import { creatureAttacks, playerAttackProfile, playerAttacks } from '../src/engine/Combat';
 import { createMonster } from '../src/entities/Monster';
 import { createNpc } from '../src/entities/Npc';
@@ -50,9 +50,18 @@ describe('narrateAttack', () => {
     ]);
   });
 
-  it('creature hit on the player', () => {
+  it('creature hit on the player: a torso hit goes unsaid, any other limb is named', () => {
     expect(narrateAttack(GECKO, YOU, 'teeth', hit(limb('torso', 'torso')))).toEqual([
-      'The gecko hits you in the torso with its teeth.',
+      'The gecko hits you with its teeth.',
+    ]);
+    expect(narrateAttack(GECKO, YOU, 'teeth', hit(limb('left arm', 'arm')))).toEqual([
+      'The gecko hits you in the left arm with its teeth.',
+    ]);
+  });
+
+  it('a body hit on an animal goes unsaid too', () => {
+    expect(narrateShot(YOU, GECKO, '9mm pistol', hit(limb('body', 'torso')))).toEqual([
+      'You shoot the gecko with your 9mm pistol.',
     ]);
   });
 
@@ -72,7 +81,7 @@ describe('narrateAttack', () => {
 
   it('a killing blow on the player says "You die..."', () => {
     const lines = narrateAttack(GECKO, YOU, 'teeth', hit(limb('torso', 'torso'), { killed: true }));
-    expect(lines).toEqual(['The gecko hits you in the torso with its teeth.', 'You die...']);
+    expect(lines).toEqual(['The gecko hits you with its teeth.', 'You die...']);
   });
 
   it('announces a crippled creature limb', () => {
@@ -195,11 +204,11 @@ describe('attack messages in the log (engine level)', () => {
     expect(state.messageLog).toEqual(['You miss the gecko with your combat knife.']);
   });
 
-  it('gecko vs player: "The gecko hits you in the ... with its teeth."', () => {
+  it('gecko vs player: "The gecko hits you [in the ...] with its teeth."', () => {
     const gecko = createMonster('g', 'gecko', 1, 0);
     const { state, events } = buildArena({ width: 3, height: 1, player: { x: 0, y: 0 }, monsters: [gecko] });
     creatureAttacks(state, gecko, scriptedRNG([0, 0.5, 0]), events);
-    expect(state.messageLog[0]).toMatch(/^The gecko hits you in the [a-z ]+ with its teeth\.$/);
+    expect(state.messageLog[0]).toMatch(/^The gecko hits you( in the [a-z ]+)? with its teeth\.$/);
 
     state.messageLog.length = 0;
     creatureAttacks(state, gecko, scriptedRNG([0.999]), events);

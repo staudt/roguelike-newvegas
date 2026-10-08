@@ -36,7 +36,7 @@ canvas. Live site: https://staudt.github.io/roguelike-newvegas/ (Pages, deployed
 ## Conventions
 - Engine functions return whether a turn was spent and call `advanceTurn` themselves; a refused action is
   a message and no turn. The UI only maps keys to engine calls.
-- One player input = one log line group (`Game.groupInput`). Log lines name the weapon and the limb.
+- One player input = one log line group (`Game.groupInput`). Log lines name the weapon and the limb (a torso/body hit, the default, goes unsaid); the torso is never hurt or crippled.
 - Randomness always comes from the passed `RNG`, so tests can script it (`scriptedRNG` in `tests/helpers/fixtures.ts`; `tests/helpers/world.ts` builds test worlds).
 - Terrain: ground and road carry a height 0–3 (`tileIsGround`, never compare to `GROUND_TILE` directly).
   Ground levels 0 and 1 share the `▒` texture and differ in colour (then `▓ █`), road reuses the ground's glyphs in greys, floor is a blank

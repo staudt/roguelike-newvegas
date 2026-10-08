@@ -16,7 +16,8 @@ export function capitalize(text: string): string {
 /**
  * The log should always say what hit what, and with what:
  *   You hit the gecko in the left leg with your combat knife.
- *   The gecko hits you in the torso with its teeth.
+ *   The gecko hits you with its teeth.
+ * A hit to the torso (or an animal's body) is the default and goes unsaid; any other limb is named.
  * Crippling and death get their own lines so they stand out in a scrolling log.
  */
 export function narrateAttack(
@@ -39,10 +40,11 @@ export function narrateAttack(
   }
 
   const limb = result.limb!;
+  const where = limb.kind === 'torso' ? '' : ` in the ${limb.name}`;
   lines.push(
     attacker.isPlayer
-      ? `You ${verbs.hit} ${defender.name} in the ${limb.name} with ${weapon}.`
-      : `${capitalize(attacker.name)} ${verbs.hits} ${defender.name} in the ${limb.name} with ${weapon}.`,
+      ? `You ${verbs.hit} ${defender.name}${where} with ${weapon}.`
+      : `${capitalize(attacker.name)} ${verbs.hits} ${defender.name}${where} with ${weapon}.`,
   );
 
   if (result.killed) {
